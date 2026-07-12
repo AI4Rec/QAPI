@@ -1,9 +1,6 @@
 import { api } from '@/lib/api'
 
-import type {
-  ActivationActionResponse,
-  ActivationQueueResponse,
-} from './types'
+import type { ActivationActionResponse, ActivationQueueResponse } from './types'
 
 export async function getActivationQueue(): Promise<ActivationQueueResponse> {
   const response = await api.get<ActivationQueueResponse>(

@@ -255,9 +255,19 @@ type OpenAIVideoResponse struct {
 type InputTokenDetails struct {
 	CachedTokens         int `json:"cached_tokens"`
 	CachedCreationTokens int `json:"cached_creation_tokens,omitempty"`
+	CacheWriteTokens     int `json:"cache_write_tokens,omitempty"`
 	TextTokens           int `json:"text_tokens"`
 	AudioTokens          int `json:"audio_tokens"`
 	ImageTokens          int `json:"image_tokens"`
+}
+
+// CacheWriteTokenCount normalizes the two upstream names used for cache
+// creation/write tokens into the canonical billing value.
+func (d InputTokenDetails) CacheWriteTokenCount() int {
+	if d.CacheWriteTokens != 0 {
+		return d.CacheWriteTokens
+	}
+	return d.CachedCreationTokens
 }
 
 type OutputTokenDetails struct {

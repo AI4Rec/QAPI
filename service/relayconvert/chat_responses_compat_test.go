@@ -37,6 +37,20 @@ func TestChatCompletionsRequestToResponsesRequestInstructionsAndTools(t *testing
 	assert.Equal(t, "function_call_output", gjson.GetBytes(got.Input, "3.type").String())
 }
 
+func TestUsageFromResponsesUsageNormalizesCacheWriteTokens(t *testing.T) {
+	usage := UsageFromResponsesUsage(&dto.Usage{
+		PromptTokens: 1000,
+		InputTokensDetails: &dto.InputTokenDetails{
+			CachedTokens:     400,
+			CacheWriteTokens: 200,
+		},
+	})
+
+	require.NotNil(t, usage)
+	assert.Equal(t, 400, usage.PromptTokensDetails.CachedTokens)
+	assert.Equal(t, 200, usage.PromptTokensDetails.CachedCreationTokens)
+}
+
 func TestChatCompletionsRequestToResponsesRequestRejectsMultipleChoices(t *testing.T) {
 	_, err := ChatCompletionsRequestToResponsesRequest(&dto.GeneralOpenAIRequest{
 		Model: "gpt-test",

@@ -5,21 +5,22 @@ deployment.
 
 ## Baseline
 
-- Application version: `v1.0.0-rc.20-curated.13`
+- Application version: `v1.0.0-rc.20-curated.14`
 - Upstream project: `QuantumNous/new-api`
 - Upstream base: `v1.0.0-rc.20`
 - Source captured from: `/tmp/codex-runs/qapi-activation` on `tencent-sg`
 - Running binary path: `/opt/new-api/new-api`
 - Running binary SHA-256:
-  `c2b09e56a4704f83988b222e8053d1ae9b3d357ae2ef7b48578c97a6d47cd49a`
+  `6b3f1b8bc802965458f84c68ba8e1bd9c45dd31dee6979c7f8f31102c4500353`
 
 The remote source tree has no `.git` metadata. This repository is the reliable
 history point for the curated deployment.
 
 ## Current deployment timeline
 
-- Default frontend build completed: 2026-07-12 14:57 +08:00
-- Remote-browser deployment completed: 2026-07-12 15:12 +08:00
+- Default frontend build completed: 2026-07-12 15:37 +08:00
+- Curated.14 application build completed: 2026-07-12 15:38 +08:00
+- Curated.14 deployment completed: 2026-07-12 15:39 +08:00
 - Service health check: HTTP 200 on `/api/status`
 
 ## Curated capabilities
