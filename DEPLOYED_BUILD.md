@@ -1,52 +1,39 @@
 # Deployed customization baseline
 
-This repository was initialized from the customized source tree used for the
-running QAPI deployment.
+This repository tracks the customized source tree used for the running QAPI
+deployment.
 
 ## Baseline
 
-- Application version: `v1.0.0-rc.20-curated.6`
+- Application version: `v1.0.0-rc.20-curated.13`
 - Upstream project: `QuantumNous/new-api`
 - Upstream base: `v1.0.0-rc.20`
-- Source captured from: `/tmp/new-api-custom-src` on `tencent-sg`
+- Source captured from: `/tmp/codex-runs/qapi-activation` on `tencent-sg`
 - Running binary path: `/opt/new-api/new-api`
 - Running binary SHA-256:
-  `1de6e691e87c251ea82968016120377ac4c72b9a71890c939d34c325dd47b36a`
+  `c2b09e56a4704f83988b222e8053d1ae9b3d357ae2ef7b48578c97a6d47cd49a`
 
-The source tree had no original `.git` metadata when it was recovered. The
-commit that adds this file is therefore the first reliable history point for
-future customizations.
+The remote source tree has no `.git` metadata. This repository is the reliable
+history point for the curated deployment.
 
-## Final build timeline
+## Current deployment timeline
 
-- Last detected source edits: 2026-07-12 02:35:33 +08:00
-- Default frontend build output completed: 2026-07-12 02:36:33 +08:00
-- Deployed binary written: 2026-07-12 02:37:17 +08:00
-- Service process started: 2026-07-12 02:37:16 +08:00
+- Default frontend build completed: 2026-07-12 14:57 +08:00
+- Remote-browser deployment completed: 2026-07-12 15:12 +08:00
+- Service health check: HTTP 200 on `/api/status`
 
-## Customized files detected after the source import
+## Curated capabilities
 
-The following files had modification times later than the initial source
-import and capture the known customization sequence:
+- CPA Codex account import, monitoring, archive and deletion
+- Server-side Codex OAuth through CLIProxyAPI
+- Full Chrome controlled through an isolated Xvfb display
+- Operational-cost asset tracking and archive management
+- Activation queue scheduling and administration
+- Responses API compatibility and billing normalization extensions
 
-- `controller/model.go`
-- `model/channel.go`
-- `controller/cpa_import.go`
-- `router/api-router.go`
-- `setting/chat.go`
-- `web/default/src/features/channels/api.ts`
-- `web/default/src/features/channels/index.tsx`
-- `web/default/src/features/channels/components/channels-primary-buttons.tsx`
-- `web/default/src/features/channels/components/cpa-accounts-panel.tsx`
-- `web/default/src/features/channels/components/dialogs/cpa-import-dialog.tsx`
-- `web/default/src/features/keys/index.tsx`
-- `web/default/src/features/keys/components/data-table-row-actions.tsx`
-- `web/default/src/features/keys/components/dialogs/cc-switch-dialog.tsx`
-- `web/default/src/features/chat/lib/chat-links.ts`
-- `web/default/src/features/playground/constants.ts`
-- `web/default/src/features/playground/index.tsx`
-- `web/default/src/features/playground/components/input/playground-input-tools.tsx`
-- `web/default/src/hooks/use-sidebar-data.ts`
+The remote-browser runtime is documented in
+`docs/deployment/remote-codex-oauth-browser.md`. Browser binaries and extracted
+system libraries remain deployment artifacts and are not committed.
 
 ## Excluded runtime state
 

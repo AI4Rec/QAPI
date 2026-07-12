@@ -125,6 +125,10 @@ func main() {
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	service.StartSubscriptionQuotaResetTask()
 
+	// Discover account/channel activation windows every 30 minutes and execute
+	// persisted due jobs from the local queue every 30 seconds.
+	service.StartActivationQueue()
+
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
 	service.StartSystemInstanceReporter()

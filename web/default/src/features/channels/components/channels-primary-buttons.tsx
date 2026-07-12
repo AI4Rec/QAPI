@@ -30,6 +30,7 @@ import {
   RefreshCw,
   ArrowUpFromLine,
   PackagePlus,
+  LogIn,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -52,6 +53,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { ActivationQueueWidget } from '@/features/activation-queue/activation-queue-widget'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -67,6 +69,7 @@ import {
 } from '../lib'
 import { useChannels } from './channels-provider'
 import { CPAImportDialog } from './dialogs/cpa-import-dialog'
+import { CPAOfficialLoginDialog } from './dialogs/cpa-official-login-dialog'
 
 export function ChannelsPrimaryButtons() {
   const { t } = useTranslation()
@@ -86,6 +89,8 @@ export function ChannelsPrimaryButtons() {
   const [showConsistencyDialog, setShowConsistencyDialog] = useState(false)
   const [isRepairingConsistency, setIsRepairingConsistency] = useState(false)
   const [showCPAImportDialog, setShowCPAImportDialog] = useState(false)
+  const [showCPAOfficialLoginDialog, setShowCPAOfficialLoginDialog] =
+    useState(false)
   const currentUser = useAuthStore((s) => s.auth.user)
   const canEditSensitive = hasPermission(
     currentUser,
@@ -160,6 +165,18 @@ export function ChannelsPrimaryButtons() {
           <PackagePlus className='h-4 w-4' />
           <span className='max-sm:hidden'>CPA 上货</span>
         </Button>
+
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => setShowCPAOfficialLoginDialog(true)}
+          disabled={!canEditSensitive}
+        >
+          <LogIn className='h-4 w-4' />
+          <span className='max-sm:hidden'>{t('Official Login')}</span>
+        </Button>
+
+        <ActivationQueueWidget />
 
         <Tooltip>
           <TooltipTrigger render={<span className='inline-flex' />}>
@@ -319,6 +336,11 @@ export function ChannelsPrimaryButtons() {
       <CPAImportDialog
         open={showCPAImportDialog}
         onOpenChange={setShowCPAImportDialog}
+      />
+
+      <CPAOfficialLoginDialog
+        open={showCPAOfficialLoginDialog}
+        onOpenChange={setShowCPAOfficialLoginDialog}
       />
 
       <ConfirmDialog

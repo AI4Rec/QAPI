@@ -57,6 +57,9 @@ type Channel struct {
 
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
+
+	OperationalCostMinor  int64  `json:"operational_cost_minor" gorm:"-"`
+	OperationalAssetState string `json:"operational_asset_state" gorm:"-"`
 }
 
 type ChannelInfo struct {
@@ -409,7 +412,7 @@ func SearchChannels(keyword string, group string, model string, idSort bool, sor
 	order := resolveChannelSortOptions(idSort, sortOptions)
 
 	// 构造基础查询
-	baseQuery := DB.Model(&Channel{}).Omit("key")
+	baseQuery := ExcludeArchivedChannels(DB.Model(&Channel{})).Omit("key")
 
 	// 构造WHERE子句
 	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"

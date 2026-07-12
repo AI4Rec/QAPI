@@ -125,6 +125,10 @@ export type CPAAccount = {
   duplicate?: boolean
   duplicate_count?: number
   usage?: CPAAccountUsage
+  asset_key: string
+  cost_minor?: number
+  cost_date?: number
+  cost_note?: string
 }
 
 export type CPAAccountsResponse = {
@@ -141,6 +145,32 @@ export type CPAAccountsResponse = {
     }
   }
 }
+
+export type CPAOAuthStartResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    provider: string
+    url: string
+    state: string
+    expires_at: number
+  }
+}
+
+export type CPAOAuthStatusResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    status: 'wait' | 'ok' | 'error'
+    error?: string
+  }
+}
+
+export type CPARemoteBrowserInput =
+  | { type: 'click'; x: number; y: number }
+  | { type: 'scroll'; x: number; y: number; delta_x: number; delta_y: number }
+  | { type: 'text'; text: string }
+  | { type: 'key'; key: string; code: string; key_code: number }
 
 export async function importCPAAccounts(
   content: string
@@ -178,6 +208,66 @@ export async function deleteCPAAccount(
     params: { name },
   })
   return res.data
+}
+
+export async function startCPACodexOAuth(): Promise<CPAOAuthStartResponse> {
+  const res = await api.post(
+    '/api/cpa/oauth/codex/start',
+    undefined,
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function submitCPAOAuthCallback(
+  redirectUrl: string
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.post(
+    '/api/cpa/oauth/callback',
+    { redirect_url: redirectUrl },
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function getCPAOAuthStatus(
+  state: string
+): Promise<CPAOAuthStatusResponse> {
+  const res = await api.get('/api/cpa/oauth/status', {
+    ...channelActionConfig(),
+    params: { state },
+  })
+  return res.data
+}
+
+export async function cancelCPAOAuth(
+  state: string
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.delete('/api/cpa/oauth/session', {
+    ...channelActionConfig(),
+    params: { state },
+  })
+  return res.data
+}
+
+export async function getCPAOAuthBrowserFrame(state: string): Promise<string> {
+  const res = await api.get('/api/cpa/oauth/browser/frame', {
+    ...channelActionConfig(),
+    params: { state, timestamp: Date.now() },
+    responseType: 'blob',
+    disableDuplicate: true,
+  })
+  return URL.createObjectURL(res.data)
+}
+
+export async function sendCPAOAuthBrowserInput(
+  state: string,
+  input: CPARemoteBrowserInput
+): Promise<void> {
+  await api.post('/api/cpa/oauth/browser/input', input, {
+    ...channelActionConfig(),
+    params: { state },
+  })
 }
 
 // ============================================================================

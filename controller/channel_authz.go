@@ -82,12 +82,14 @@ var channelOperationalFields = map[string]struct{}{
 // channelReadOnlyFields lists server-managed/accounting fields that the general
 // channel edit endpoint must ignore even if a client sends them.
 var channelReadOnlyFields = map[string]struct{}{
-	"created_time":         {},
-	"test_time":            {},
-	"response_time":        {},
-	"balance":              {},
-	"balance_updated_time": {},
-	"used_quota":           {},
+	"created_time":            {},
+	"test_time":               {},
+	"response_time":           {},
+	"balance":                 {},
+	"balance_updated_time":    {},
+	"used_quota":              {},
+	"operational_cost_minor":  {},
+	"operational_asset_state": {},
 }
 
 func clearChannelReadOnlyFields(channel *PatchChannel, requestData map[string]any) {

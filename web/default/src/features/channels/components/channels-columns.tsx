@@ -46,12 +46,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { AssetCostInput } from '@/features/operational-costs/components/asset-cost-input'
+import { toIntlLocale } from '@/i18n/languages'
 import {
   formatCurrencyFromUSD,
   formatQuotaWithCurrency,
   getCurrencyLabel,
 } from '@/lib/currency'
-import { toIntlLocale } from '@/i18n/languages'
 import { formatTimestampToDate } from '@/lib/format'
 import { truncateText } from '@/lib/utils'
 
@@ -685,6 +686,27 @@ export function useChannelsColumns(
           )
         },
         minSize: 200,
+      },
+
+      {
+        id: 'operational_cost',
+        header: t('Cost'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => {
+          if (isTagAggregateRow(row.original)) return null
+          const channel = row.original as Channel
+          return (
+            <AssetCostInput
+              source_type='channel'
+              source_key={`channel:${channel.id}`}
+              source_id={channel.id}
+              display_name={channel.name}
+              costMinor={channel.operational_cost_minor}
+            />
+          )
+        },
+        size: 130,
+        enableSorting: false,
       },
 
       // Type column

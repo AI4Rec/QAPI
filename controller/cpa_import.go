@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -101,6 +104,16 @@ func GetCPAAccounts(c *gin.Context) {
 		if !strings.EqualFold(stringValue(file["type"]), "codex") {
 			continue
 		}
+		authIndex := stringValue(file["auth_index"])
+		assetKey := model.OperationalCPAAssetKey(authIndex)
+		archived, archiveErr := model.IsOperationalAssetArchived(model.OperationalAssetTypeCPAAccount, assetKey)
+		if archiveErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "读取 CPA 归档状态失败"})
+			return
+		}
+		if archived {
+			continue
+		}
 		email := stringValue(file["email"])
 		uniqueKey := strings.ToLower(email)
 		if uniqueKey == "" {
@@ -132,7 +145,29 @@ func GetCPAAccounts(c *gin.Context) {
 			"next_retry_after": file["next_retry_after"],
 			"plan_type":        planType,
 			"account_id":       accountID,
+			"asset_key":        assetKey,
 			"unique_key":       uniqueKey,
+		}
+		asset := &model.OperationalAsset{
+			SourceType: model.OperationalAssetTypeCPAAccount, SourceKey: assetKey,
+			SourceRef: authIndex, DisplayName: email,
+		}
+		if asset.DisplayName == "" {
+			asset.DisplayName = stringValue(file["name"])
+		}
+		if upsertErr := model.UpsertOperationalAssetSeen(asset); upsertErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "同步 CPA 成本资产失败"})
+			return
+		}
+		storedAsset, assetErr := model.GetOperationalAsset(model.OperationalAssetTypeCPAAccount, assetKey)
+		if assetErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "读取 CPA 成本失败"})
+			return
+		}
+		if storedAsset != nil {
+			account["cost_minor"] = storedAsset.CostMinor
+			account["cost_date"] = storedAsset.CostDate
+			account["cost_note"] = storedAsset.CostNote
 		}
 		accounts = append(accounts, account)
 		if accountID != "" && usageCandidates[uniqueKey] == nil {
@@ -194,6 +229,85 @@ func GetCPAAccounts(c *gin.Context) {
 			},
 		},
 	})
+}
+
+type cpaAccountArchiveRequest struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+func ArchiveCPAAccount(c *gin.Context) {
+	var req cpaAccountArchiveRequest
+	if c.ShouldBindJSON(&req) != nil || strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "账号名称不能为空"})
+		return
+	}
+	managementKey, err := readCPAManagementKey()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "CPA 管理密钥不可用"})
+		return
+	}
+	body, status, err := doCPARequest(c.Request.Context(), managementKey, http.MethodGet, "/v0/management/auth-files", nil)
+	if err != nil || status < 200 || status >= 300 {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "读取 CPA 账号失败"})
+		return
+	}
+	var list struct {
+		Files []map[string]any `json:"files"`
+	}
+	if common.Unmarshal(body, &list) != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "CPA 返回格式错误"})
+		return
+	}
+	var selected map[string]any
+	for _, file := range list.Files {
+		if stringValue(file["name"]) == strings.TrimSpace(req.Name) {
+			selected = file
+			break
+		}
+	}
+	if selected == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "CPA 账号不存在"})
+		return
+	}
+	authIndex := stringValue(selected["auth_index"])
+	if authIndex == "" {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "CPA 账号缺少 auth_index"})
+		return
+	}
+	payload, _ := common.Marshal(map[string]any{"name": req.Name, "disabled": true})
+	_, status, err = doCPARequest(c.Request.Context(), managementKey, http.MethodPatch, "/v0/management/auth-files/status", payload)
+	if err != nil || status < 200 || status >= 300 {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "冻结 CPA 账号失败，未完成归档"})
+		return
+	}
+	idToken := mapValue(selected["id_token"])
+	email := stringValue(selected["email"])
+	if email == "" {
+		email = req.Name
+	}
+	snapshot, err := common.Marshal(map[string]any{
+		"name": req.Name, "email": email, "auth_index": authIndex,
+		"account_id": stringValue(idToken["chatgpt_account_id"]),
+		"plan_type":  stringValue(idToken["plan_type"]),
+		"status":     selected["status"], "status_message": selected["status_message"],
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	asset := &model.OperationalAsset{
+		SourceType: model.OperationalAssetTypeCPAAccount,
+		SourceKey:  model.OperationalCPAAssetKey(authIndex), SourceRef: authIndex, DisplayName: email,
+	}
+	if err := model.ArchiveOperationalAsset(asset, string(snapshot), req.Reason, c.GetInt("id")); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.DisableActivationSource(model.ActivationSourceCPAAccount, authIndex); err != nil {
+		common.SysError("failed to disable archived CPA activation target: " + err.Error())
+	}
+	common.ApiSuccess(c, nil)
 }
 
 type cpaAccountStatusRequest struct {

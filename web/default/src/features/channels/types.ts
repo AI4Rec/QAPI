@@ -71,6 +71,8 @@ export const channelSchema = z.object({
     multi_key_mode: 'random',
   }),
   settings: z.string().default('{}'), // other_settings JSON
+  operational_cost_minor: z.number().default(0),
+  operational_asset_state: z.string().default('active'),
 })
 
 export type Channel = z.infer<typeof channelSchema>

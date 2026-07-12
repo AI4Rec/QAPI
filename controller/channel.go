@@ -82,7 +82,7 @@ func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 }
 
 func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm.DB {
-	query := model.DB.Model(&model.Channel{})
+	query := model.ExcludeArchivedChannels(model.DB.Model(&model.Channel{}))
 	query = model.ApplyChannelGroupFilter(query, group)
 	query = applyChannelStatusFilter(query, statusFilter)
 	if typeFilter >= 0 {
@@ -167,6 +167,9 @@ func GetAllChannels(c *gin.Context) {
 
 	for _, datum := range channelData {
 		clearChannelInfo(datum)
+	}
+	if err := model.AttachOperationalCostsToChannels(channelData); err != nil {
+		common.SysError("failed to attach channel operational costs: " + err.Error())
 	}
 
 	countQuery := buildChannelListQuery(groupFilter, statusFilter, -1)
@@ -310,6 +313,9 @@ func SearchChannels(c *gin.Context) {
 			return
 		}
 		channelData = channels
+	}
+	if err := model.AttachOperationalCostsToChannels(channelData); err != nil {
+		common.SysError("failed to attach channel operational costs: " + err.Error())
 	}
 
 	if statusFilter == common.ChannelStatusEnabled || statusFilter == 0 {

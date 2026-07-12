@@ -297,6 +297,10 @@ func migrateDB() error {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
+		&ActivationTarget{},
+		&ActivationJob{},
+		&OperationalAsset{},
+		&OperationalCostEntry{},
 		&CasbinRule{},
 		&AuthzRole{},
 	)
@@ -351,6 +355,10 @@ func migrateDBFast() error {
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
+		{&ActivationTarget{}, "ActivationTarget"},
+		{&ActivationJob{}, "ActivationJob"},
+		{&OperationalAsset{}, "OperationalAsset"},
+		{&OperationalCostEntry{}, "OperationalCostEntry"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

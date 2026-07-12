@@ -33,9 +33,11 @@ import {
   Trash2,
   RefreshCw,
   Loader2,
+  Archive,
 } from 'lucide-react'
 import { useContext, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
@@ -52,6 +54,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { archiveChannel } from '@/features/operational-costs/api'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -87,6 +90,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
 
   const isEnabled = isChannelEnabled(channel)
   const isMultiKey = isMultiKeyChannel(channel)
@@ -152,6 +156,36 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       await handleToggleChannelStatus(channel.id, channel.status, queryClient)
     } finally {
       setIsTogglingStatus(false)
+    }
+  }
+
+  const handleArchive = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    if (!canEditSensitive) {
+      return
+    }
+    const reason = window.prompt(t('Archive reason'), '')
+    if (reason === null) {
+      return
+    }
+    setIsArchiving(true)
+    try {
+      const result = await archiveChannel(channel.id, reason)
+      if (!result.success) {
+        throw new Error(result.message || t('Failed to archive asset'))
+      }
+      toast.success(t('Asset archived'))
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: ['operational-costs'] }),
+        queryClient.invalidateQueries({ queryKey: ['activation-queue'] }),
+      ])
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t('Failed to archive asset')
+      )
+    } finally {
+      setIsArchiving(false)
     }
   }
 
@@ -249,6 +283,27 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         <TooltipContent>
           {isEnabled ? t('Disable') : t('Enable')}
         </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              onClick={handleArchive}
+              disabled={!canEditSensitive || isArchiving}
+              aria-label={t('Archive')}
+            />
+          }
+        >
+          {isArchiving ? (
+            <Loader2 className='size-4 animate-spin' />
+          ) : (
+            <Archive className='size-4' />
+          )}
+        </TooltipTrigger>
+        <TooltipContent>{t('Archive')}</TooltipContent>
       </Tooltip>
 
       <DropdownMenu>

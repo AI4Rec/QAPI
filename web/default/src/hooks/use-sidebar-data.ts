@@ -33,10 +33,11 @@ import {
   User,
   Users,
   Wallet,
+  WalletCards,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -123,6 +124,11 @@ export function useSidebarData(): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+          },
+          {
+            title: t('Operational Costs'),
+            url: '/operational-costs',
+            icon: WalletCards,
           },
           {
             title: t('Models'),
