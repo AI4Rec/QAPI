@@ -33,10 +33,10 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { getChannelOps } from './api'
 import { ChannelsDialogs } from './components/channels-dialogs'
-import { CPAAccountsPanel } from './components/cpa-accounts-panel'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
 import { ChannelsProvider } from './components/channels-provider'
 import { ChannelsTable } from './components/channels-table'
+import { CPAAccountsPanel } from './components/cpa-accounts-panel'
 
 export function Channels() {
   const { t } = useTranslation()
@@ -87,7 +87,7 @@ export function Channels() {
 
   return (
     <ChannelsProvider>
-      <SectionPageLayout fixedContent>
+      <SectionPageLayout>
         <SectionPageLayout.Title>
           <span className='flex min-w-0 items-center gap-2'>
             <span className='truncate'>{t('Channels')}</span>

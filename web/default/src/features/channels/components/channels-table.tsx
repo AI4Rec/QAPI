@@ -402,6 +402,7 @@ export function ChannelsTable() {
 
   return (
     <DataTablePage
+      fixedHeight={false}
       table={table}
       columns={columns}
       isLoading={isLoading}
