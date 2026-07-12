@@ -5,27 +5,28 @@ deployment.
 
 ## Baseline
 
-- Application version: `v1.0.0-rc.20-curated.14`
+- Application version: `v1.0.0-rc.20-curated.15`
 - Upstream project: `QuantumNous/new-api`
 - Upstream base: `v1.0.0-rc.20`
 - Source captured from: `/tmp/codex-runs/qapi-activation` on `tencent-sg`
 - Running binary path: `/opt/new-api/new-api`
 - Running binary SHA-256:
-  `6b3f1b8bc802965458f84c68ba8e1bd9c45dd31dee6979c7f8f31102c4500353`
+  `5a227ce2429ebbbea5c2d0eec8ad8bd8904ef4ae3d0101acf6e6f6690c9430e9`
 
 The remote source tree has no `.git` metadata. This repository is the reliable
 history point for the curated deployment.
 
 ## Current deployment timeline
 
-- Default frontend build completed: 2026-07-12 15:37 +08:00
-- Curated.14 application build completed: 2026-07-12 15:38 +08:00
-- Curated.14 deployment completed: 2026-07-12 15:39 +08:00
+- Default frontend build completed: 2026-07-12 17:50 +08:00
+- Curated.15 application build completed: 2026-07-12 17:55 +08:00
+- Curated.15 deployment completed: 2026-07-12 17:56 +08:00
 - Service health check: HTTP 200 on `/api/status`
 
 ## Curated capabilities
 
 - CPA Codex account import, monitoring, archive and deletion
+- Separate CPA-import and official-login account pools with quota countdowns
 - Server-side Codex OAuth through CLIProxyAPI
 - Full Chrome controlled through an isolated Xvfb display
 - Operational-cost asset tracking and archive management

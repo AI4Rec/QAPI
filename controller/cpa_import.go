@@ -26,6 +26,7 @@ import (
 const defaultCodexClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
 var cpaFileNameCleaner = regexp.MustCompile(`[^a-zA-Z0-9._+-]+`)
+var cpaImportedAccountNamePattern = regexp.MustCompile(`-[0-9a-f]{8}\.json$`)
 
 type cpaImportRequest struct {
 	Content string `json:"content"`
@@ -146,6 +147,7 @@ func GetCPAAccounts(c *gin.Context) {
 			"plan_type":        planType,
 			"account_id":       accountID,
 			"asset_key":        assetKey,
+			"pool_type":        cpaAccountPoolType(stringValue(file["name"])),
 			"unique_key":       uniqueKey,
 		}
 		asset := &model.OperationalAsset{
@@ -229,6 +231,13 @@ func GetCPAAccounts(c *gin.Context) {
 			},
 		},
 	})
+}
+
+func cpaAccountPoolType(name string) string {
+	if cpaImportedAccountNamePattern.MatchString(strings.ToLower(strings.TrimSpace(name))) {
+		return "cpa_import"
+	}
+	return "official_login"
 }
 
 type cpaAccountArchiveRequest struct {

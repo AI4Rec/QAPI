@@ -122,6 +122,7 @@ export type CPAAccount = {
   next_retry_after?: string
   plan_type?: string
   account_id?: string
+  pool_type: 'cpa_import' | 'official_login'
   duplicate?: boolean
   duplicate_count?: number
   usage?: CPAAccountUsage
