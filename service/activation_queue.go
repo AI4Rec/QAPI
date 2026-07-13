@@ -450,17 +450,23 @@ func getCPAActivationSnapshot(ctx context.Context, authIndex string) (*activatio
 
 func cpaSnapshotFromFile(ctx context.Context, file map[string]any) (*activationSnapshot, error) {
 	authIndex := mapString(file, "auth_index")
-	idToken := mapObject(file["id_token"])
-	accountID := mapString(idToken, "chatgpt_account_id")
-	if accountID == "" {
-		return nil, errors.New("CPA account id is missing")
+	metadata, _, err := ResolveAndRepairCPAAuthMetadata(ctx, file)
+	if err != nil {
+		return nil, err
 	}
-	usage, err := fetchCPAUsage(ctx, authIndex, accountID)
+	usage, err := fetchCPAUsage(ctx, authIndex, metadata.AccountID)
 	if err != nil {
 		return nil, err
 	}
 	windowSeconds, resetAt := shortActivationWindow(usage)
+	planType := usagePlanType(usage)
+	if planType == "" {
+		planType = metadata.PlanType
+	}
 	email := mapString(file, "email")
+	if email == "" {
+		email = metadata.Email
+	}
 	if email == "" {
 		email = mapString(file, "name")
 	}
@@ -470,7 +476,7 @@ func cpaSnapshotFromFile(ctx context.Context, file map[string]any) (*activationS
 		SourceType:    model.ActivationSourceCPAAccount,
 		SourceID:      authIndex,
 		DisplayName:   email,
-		PlanType:      usagePlanType(usage),
+		PlanType:      planType,
 		Available:     !mapBool(file, "disabled") && !mapBool(file, "unavailable"),
 		WindowSeconds: windowSeconds,
 		ResetAt:       resetAt,
@@ -612,15 +618,19 @@ func activateCPAAccount(ctx context.Context, authIndex string) error {
 	if err != nil {
 		return err
 	}
-	var accountID string
+	var selected map[string]any
 	for _, file := range files {
 		if mapString(file, "auth_index") == authIndex {
-			accountID = mapString(mapObject(file["id_token"]), "chatgpt_account_id")
+			selected = file
 			break
 		}
 	}
-	if accountID == "" {
+	if selected == nil {
 		return errors.New("CPA account not found")
+	}
+	metadata, _, err := ResolveAndRepairCPAAuthMetadata(ctx, selected)
+	if err != nil {
+		return err
 	}
 	requestBody, err := activationRequestBody(activationWarmupModel)
 	if err != nil {
@@ -632,7 +642,7 @@ func activateCPAAccount(ctx context.Context, authIndex string) error {
 		"url":        "https://chatgpt.com/backend-api/codex/responses",
 		"header": map[string]string{
 			"Authorization":      "Bearer $TOKEN$",
-			"chatgpt-account-id": accountID,
+			"chatgpt-account-id": metadata.AccountID,
 			"Content-Type":       "application/json",
 			"Accept":             "text/event-stream",
 			"OpenAI-Beta":        "responses=experimental",

@@ -18,6 +18,22 @@ func DecodeJson(reader io.Reader, v any) error {
 	return json.NewDecoder(reader).Decode(v)
 }
 
+func DecodeJsonSequence(reader io.Reader, handle func(any) error) error {
+	decoder := json.NewDecoder(reader)
+	for {
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if err := handle(value); err != nil {
+			return err
+		}
+	}
+}
+
 func Marshal(v any) ([]byte, error) {
 	return json.Marshal(v)
 }

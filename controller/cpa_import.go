@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -69,12 +69,65 @@ func ImportCPAAccounts(c *gin.Context) {
 		uploaded = append(uploaded, name)
 	}
 
+	verified := make([]gin.H, 0, len(uploaded))
+	warnings := make([]gin.H, 0)
+	if len(uploaded) > 0 {
+		body, status, listErr := doCPARequest(c.Request.Context(), managementKey, http.MethodGet, "/v0/management/auth-files", nil)
+		var list struct {
+			Files []map[string]any `json:"files"`
+		}
+		if listErr != nil || status < 200 || status >= 300 || common.Unmarshal(body, &list) != nil {
+			warnings = append(warnings, gin.H{"error": "上传成功，但读取 CPA 账号进行验证失败"})
+		} else {
+			filesByName := make(map[string]map[string]any, len(list.Files))
+			for _, file := range list.Files {
+				filesByName[stringValue(file["name"])] = file
+			}
+			for _, name := range uploaded {
+				file := filesByName[name]
+				if file == nil {
+					warnings = append(warnings, gin.H{"name": name, "error": "上传成功，但 CPA 未返回该账号"})
+					continue
+				}
+				metadata, repaired, resolveErr := service.ResolveAndRepairCPAAuthMetadata(c.Request.Context(), file)
+				if resolveErr != nil || metadata.AccountID == "" {
+					warnings = append(warnings, gin.H{"name": name, "error": "上传成功，但无法解析账号订阅信息"})
+					continue
+				}
+				usage, usageErr := fetchCPAAccountUsage(
+					c.Request.Context(),
+					managementKey,
+					stringValue(file["auth_index"]),
+					metadata.AccountID,
+				)
+				if usageErr != nil {
+					warnings = append(warnings, gin.H{"name": name, "error": "上传成功，但额度验证失败"})
+					continue
+				}
+				planType := stringValue(usage["plan_type"])
+				if planType == "" {
+					planType = metadata.PlanType
+				}
+				verified = append(verified, gin.H{
+					"name": name, "email": metadata.Email, "plan_type": planType,
+					"verified": true, "repaired": repaired, "usage_available": true,
+				})
+			}
+		}
+	}
+
 	success := len(failed) == 0
-	message := fmt.Sprintf("CPA 上货完成：成功 %d，失败 %d", len(uploaded), len(failed))
+	message := fmt.Sprintf("CPA 上货完成：上传 %d，验证 %d，失败 %d", len(uploaded), len(verified), len(failed))
+	if len(warnings) > 0 {
+		message += fmt.Sprintf("，警告 %d", len(warnings))
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": success,
 		"message": message,
-		"data":    gin.H{"total": len(accounts), "uploaded": len(uploaded), "failed": failed, "files": uploaded},
+		"data": gin.H{
+			"total": len(accounts), "uploaded": len(uploaded), "verified": len(verified),
+			"failed": failed, "warnings": warnings, "files": uploaded, "accounts": verified,
+		},
 	})
 }
 
@@ -92,7 +145,7 @@ func GetCPAAccounts(c *gin.Context) {
 	var list struct {
 		Files []map[string]any `json:"files"`
 	}
-	if json.Unmarshal(body, &list) != nil {
+	if common.Unmarshal(body, &list) != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "CPA 返回格式错误"})
 		return
 	}
@@ -116,6 +169,13 @@ func GetCPAAccounts(c *gin.Context) {
 			continue
 		}
 		email := stringValue(file["email"])
+		metadata, repaired, resolveErr := service.ResolveAndRepairCPAAuthMetadata(c.Request.Context(), file)
+		if resolveErr != nil {
+			metadata = service.ExtractCPAAuthMetadata(file)
+		}
+		if email == "" {
+			email = metadata.Email
+		}
 		uniqueKey := strings.ToLower(email)
 		if uniqueKey == "" {
 			uniqueKey = stringValue(file["name"])
@@ -127,28 +187,28 @@ func GetCPAAccounts(c *gin.Context) {
 		} else {
 			active++
 		}
-		idToken := mapValue(file["id_token"])
-		accountID := stringValue(idToken["chatgpt_account_id"])
-		planType := stringValue(idToken["plan_type"])
+		accountID := metadata.AccountID
+		planType := metadata.PlanType
 		account := map[string]any{
-			"name":             file["name"],
-			"email":            email,
-			"status":           file["status"],
-			"status_message":   file["status_message"],
-			"disabled":         isDisabled,
-			"unavailable":      file["unavailable"],
-			"success":          file["success"],
-			"failed":           file["failed"],
-			"recent_requests":  file["recent_requests"],
-			"created_at":       file["created_at"],
-			"updated_at":       file["updated_at"],
-			"last_refresh":     file["last_refresh"],
-			"next_retry_after": file["next_retry_after"],
-			"plan_type":        planType,
-			"account_id":       accountID,
-			"asset_key":        assetKey,
-			"pool_type":        cpaAccountPoolType(stringValue(file["name"])),
-			"unique_key":       uniqueKey,
+			"name":              file["name"],
+			"email":             email,
+			"status":            file["status"],
+			"status_message":    file["status_message"],
+			"disabled":          isDisabled,
+			"unavailable":       file["unavailable"],
+			"success":           file["success"],
+			"failed":            file["failed"],
+			"recent_requests":   file["recent_requests"],
+			"created_at":        file["created_at"],
+			"updated_at":        file["updated_at"],
+			"last_refresh":      file["last_refresh"],
+			"next_retry_after":  file["next_retry_after"],
+			"plan_type":         planType,
+			"account_id":        accountID,
+			"asset_key":         assetKey,
+			"pool_type":         cpaAccountPoolType(stringValue(file["name"])),
+			"metadata_repaired": repaired,
+			"unique_key":        uniqueKey,
 		}
 		asset := &model.OperationalAsset{
 			SourceType: model.OperationalAssetTypeCPAAccount, SourceKey: assetKey,
@@ -284,21 +344,27 @@ func ArchiveCPAAccount(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "CPA 账号缺少 auth_index"})
 		return
 	}
+	metadata, _, resolveErr := service.ResolveAndRepairCPAAuthMetadata(c.Request.Context(), selected)
+	if resolveErr != nil {
+		metadata = service.ExtractCPAAuthMetadata(selected)
+	}
 	payload, _ := common.Marshal(map[string]any{"name": req.Name, "disabled": true})
 	_, status, err = doCPARequest(c.Request.Context(), managementKey, http.MethodPatch, "/v0/management/auth-files/status", payload)
 	if err != nil || status < 200 || status >= 300 {
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "冻结 CPA 账号失败，未完成归档"})
 		return
 	}
-	idToken := mapValue(selected["id_token"])
 	email := stringValue(selected["email"])
+	if email == "" {
+		email = metadata.Email
+	}
 	if email == "" {
 		email = req.Name
 	}
 	snapshot, err := common.Marshal(map[string]any{
 		"name": req.Name, "email": email, "auth_index": authIndex,
-		"account_id": stringValue(idToken["chatgpt_account_id"]),
-		"plan_type":  stringValue(idToken["plan_type"]),
+		"account_id": metadata.AccountID,
+		"plan_type":  metadata.PlanType,
 		"status":     selected["status"], "status_message": selected["status_message"],
 	})
 	if err != nil {
@@ -335,7 +401,7 @@ func SetCPAAccountStatus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "CPA 管理密钥不可用"})
 		return
 	}
-	payload, _ := json.Marshal(map[string]any{"name": req.Name, "disabled": req.Disabled})
+	payload, _ := common.Marshal(map[string]any{"name": req.Name, "disabled": req.Disabled})
 	_, status, err := doCPARequest(c.Request.Context(), managementKey, http.MethodPatch, "/v0/management/auth-files/status", payload)
 	if err != nil || status < 200 || status >= 300 {
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "更新 CPA 账号状态失败"})
@@ -365,16 +431,8 @@ func DeleteCPAAccount(c *gin.Context) {
 }
 
 func decodeCPAAccounts(content string) ([]map[string]any, error) {
-	decoder := json.NewDecoder(strings.NewReader(content))
 	accounts := make([]map[string]any, 0)
-	for {
-		var value any
-		if err := decoder.Decode(&value); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("JSON 格式错误：%v", err)
-		}
+	err := common.DecodeJsonSequence(strings.NewReader(content), func(value any) error {
 		switch item := value.(type) {
 		case map[string]any:
 			accounts = append(accounts, item)
@@ -382,13 +440,20 @@ func decodeCPAAccounts(content string) ([]map[string]any, error) {
 			for _, raw := range item {
 				account, ok := raw.(map[string]any)
 				if !ok {
-					return nil, fmt.Errorf("JSON 数组中只能包含账号对象")
+					return fmt.Errorf("JSON 数组中只能包含账号对象")
 				}
 				accounts = append(accounts, account)
 			}
 		default:
-			return nil, fmt.Errorf("请输入账号对象或账号对象数组")
+			return fmt.Errorf("请输入账号对象或账号对象数组")
 		}
+		return nil
+	})
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "JSON 数组") || strings.HasPrefix(err.Error(), "请输入") {
+			return nil, err
+		}
+		return nil, fmt.Errorf("JSON 格式错误：%v", err)
 	}
 	if len(accounts) == 0 {
 		return nil, fmt.Errorf("没有找到可上货的账号")
@@ -402,17 +467,28 @@ func normalizeCPAAccount(account map[string]any) (string, map[string]any, error)
 		return "", nil, fmt.Errorf("缺少 access_token")
 	}
 	claims := decodeJWTClaims(accessToken)
-	authClaims := mapValue(claims["https://api.openai.com/auth"])
-	profileClaims := mapValue(claims["https://api.openai.com/profile"])
+	accessMetadata := service.ExtractCPAAuthMetadata(map[string]any{"access_token": accessToken})
+	if accessMetadata.AccountID == "" {
+		return "", nil, fmt.Errorf("access_token 缺少 chatgpt_account_id")
+	}
 
 	setDefaultString(account, "type", "codex")
 	setDefaultString(account, "client_id", defaultCodexClientID)
-	setDefaultString(account, "id_token", accessToken)
+	if !service.IsCLIProxyCompatibleCPAIDToken(stringValue(account["id_token"])) {
+		if !service.IsCLIProxyCompatibleCPAIDToken(accessToken) {
+			return "", nil, fmt.Errorf("access_token 无法生成可解析的 id_token")
+		}
+		account["id_token"] = accessToken
+	}
 	setDefaultString(account, "refresh_token", "")
 	setDefaultString(account, "password", "Takeover_NoPassword")
-	setDefaultString(account, "account_id", stringValue(authClaims["chatgpt_account_id"]))
-	setDefaultString(account, "email", stringValue(profileClaims["email"]))
-	setDefaultString(account, "plan_type", stringValue(authClaims["chatgpt_plan_type"]))
+	account["account_id"] = accessMetadata.AccountID
+	account["chatgpt_account_id"] = accessMetadata.AccountID
+	if accessMetadata.PlanType != "" {
+		account["plan_type"] = accessMetadata.PlanType
+		account["chatgpt_plan_type"] = accessMetadata.PlanType
+	}
+	setDefaultString(account, "email", accessMetadata.Email)
 	setDefaultString(account, "last_refresh", time.Now().UTC().Format(time.RFC3339))
 	if stringValue(account["expired"]) == "" {
 		if exp, ok := claims["exp"].(float64); ok && exp > 0 {
@@ -442,7 +518,7 @@ func decodeJWTClaims(token string) map[string]any {
 		return map[string]any{}
 	}
 	claims := map[string]any{}
-	if json.Unmarshal(payload, &claims) != nil {
+	if common.Unmarshal(payload, &claims) != nil {
 		return map[string]any{}
 	}
 	return claims
@@ -451,14 +527,6 @@ func decodeJWTClaims(token string) map[string]any {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return strings.TrimSpace(text)
-}
-
-func mapValue(value any) map[string]any {
-	result, _ := value.(map[string]any)
-	if result == nil {
-		return map[string]any{}
-	}
-	return result
 }
 
 func setDefaultString(values map[string]any, key, value string) {
@@ -484,7 +552,7 @@ func readCPAManagementKey() (string, error) {
 }
 
 func uploadCPAAccount(ctx context.Context, managementKey, name string, account map[string]any) error {
-	body, err := json.Marshal(account)
+	body, err := common.Marshal(account)
 	if err != nil {
 		return fmt.Errorf("账号序列化失败")
 	}
@@ -524,7 +592,7 @@ func doCPARequest(ctx context.Context, managementKey, method, path string, body 
 }
 
 func fetchCPAAccountUsage(ctx context.Context, managementKey, authIndex, accountID string) (map[string]any, error) {
-	payload, _ := json.Marshal(map[string]any{
+	payload, _ := common.Marshal(map[string]any{
 		"auth_index": authIndex,
 		"method":     http.MethodGet,
 		"url":        "https://chatgpt.com/backend-api/wham/usage",
@@ -543,11 +611,11 @@ func fetchCPAAccountUsage(ctx context.Context, managementKey, authIndex, account
 		StatusCode int    `json:"status_code"`
 		Body       string `json:"body"`
 	}
-	if json.Unmarshal(body, &outer) != nil || outer.StatusCode < 200 || outer.StatusCode >= 300 {
+	if common.Unmarshal(body, &outer) != nil || outer.StatusCode < 200 || outer.StatusCode >= 300 {
 		return nil, fmt.Errorf("额度查询返回异常")
 	}
 	usage := map[string]any{}
-	if json.Unmarshal([]byte(outer.Body), &usage) != nil {
+	if common.UnmarshalJsonStr(outer.Body, &usage) != nil {
 		return nil, fmt.Errorf("额度数据格式错误")
 	}
 	return usage, nil
