@@ -62,6 +62,27 @@
 
 ---
 
+## QAPI Production Snapshot
+
+<p align="center">
+  <img src="./web/default/public/qapi-logo.png" alt="QAPI" width="160" />
+</p>
+
+The `main` branch includes the source and non-secret operational files corresponding to the QAPI version running on the Tencent Singapore server as of **2026-07-18**.
+
+| Item | Snapshot |
+|------|----------|
+| Git commit | [`4ba1930`](https://github.com/AI4Rec/QAPI/commit/4ba1930c29cc6050779c292115369af8a6a19df4) |
+| Git tag | [`server-snapshot-2026-07-18`](https://github.com/AI4Rec/QAPI/tree/server-snapshot-2026-07-18) |
+| Live service | [qapi.click](https://qapi.click) |
+| Server manifest | [`deploy/tencent-sg/SNAPSHOT.md`](./deploy/tencent-sg/SNAPSHOT.md) |
+
+The snapshot includes the active QAPI icon, the pooled-capacity monitor source, and the deployed Nginx and systemd configuration. Secrets, databases, TLS private keys, logs, account credentials, and generated runtime state are intentionally excluded.
+
+The production server remains the accepted runtime baseline for this snapshot. Changes are reconciled into the local source tree and then pushed to GitHub for source backup and traceability.
+
+---
+
 ## 🤝 Trusted Partners
 
 <p align="center">
