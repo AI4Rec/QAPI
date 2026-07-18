@@ -16,7 +16,14 @@ import (
 	"gorm.io/gorm"
 )
 
-const UserNameMaxLength = 20
+const (
+	UserNameMaxLength    = 20
+	invitationCodeLength = 16
+)
+
+func NewInvitationCode() string {
+	return common.GetRandomString(invitationCodeLength)
+}
 
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
@@ -411,6 +418,44 @@ func GetUserIdByAffCode(affCode string) (int, error) {
 	return user.Id, err
 }
 
+// ResolveInvitationWithTx resolves an inviter and atomically consumes the
+// invitation code when invitation-only registration is enabled.
+func ResolveInvitationWithTx(tx *gorm.DB, affCode string, consume bool) (int, error) {
+	affCode = strings.TrimSpace(affCode)
+	if affCode == "" {
+		if consume {
+			return 0, ErrInvitationRequired
+		}
+		return 0, nil
+	}
+
+	var inviter User
+	err := tx.Select("id", "aff_code").Where("aff_code = ? AND status = ?", affCode, common.UserStatusEnabled).First(&inviter).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if consume {
+			return 0, ErrInvitationInvalid
+		}
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !consume {
+		return inviter.Id, nil
+	}
+
+	result := tx.Model(&User{}).
+		Where("id = ? AND aff_code = ?", inviter.Id, affCode).
+		Update("aff_code", NewInvitationCode())
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return 0, ErrInvitationInvalid
+	}
+	return inviter.Id, nil
+}
+
 func DeleteUserById(id int) (err error) {
 	if id == 0 {
 		return errors.New("id 为空！")
@@ -537,7 +582,8 @@ func (user *User) Insert(inviterId int) error {
 				return err
 			}
 			user.Quota = common.QuotaForNewUser
-			user.AffCode = common.GetRandomString(4)
+			user.AffCode = NewInvitationCode()
+			user.InviterId = inviterId
 
 			// 初始化用户设置，包括默认的边栏配置
 			if user.Setting == "" {
@@ -601,7 +647,8 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			return err
 		}
 		user.Quota = common.QuotaForNewUser
-		user.AffCode = common.GetRandomString(4)
+		user.AffCode = NewInvitationCode()
+		user.InviterId = inviterId
 
 		// 初始化用户设置
 		if user.Setting == "" {

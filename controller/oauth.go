@@ -111,6 +111,14 @@ func HandleOAuth(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
 			return
 		}
+		if errors.Is(err, model.ErrInvitationRequired) {
+			common.ApiErrorI18n(c, i18n.MsgUserInvitationRequired)
+			return
+		}
+		if errors.Is(err, model.ErrInvitationInvalid) {
+			common.ApiErrorI18n(c, i18n.MsgUserInvitationInvalid)
+			return
+		}
 		switch err.(type) {
 		case *OAuthUserDeletedError:
 			common.ApiErrorI18n(c, i18n.MsgOAuthUserDeleted)
@@ -277,15 +285,21 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 
 	// Handle affiliate code
 	affCode := session.Get("aff")
+	affCodeString := ""
 	inviterId := 0
 	if affCode != nil {
-		inviterId, _ = model.GetUserIdByAffCode(affCode.(string))
+		affCodeString, _ = affCode.(string)
 	}
 
 	// Use transaction to ensure user creation and OAuth binding are atomic
 	if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {
 		// Custom provider: create user and binding in a transaction
 		err := model.DB.Transaction(func(tx *gorm.DB) error {
+			resolvedInviterId, err := model.ResolveInvitationWithTx(tx, affCodeString, common.InviteOnlyRegisterEnabled)
+			if err != nil {
+				return err
+			}
+			inviterId = resolvedInviterId
 			// Create user
 			if err := user.InsertWithTx(tx, inviterId); err != nil {
 				return err
@@ -312,6 +326,11 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	} else {
 		// Built-in provider: create user and update provider ID in a transaction
 		err := model.DB.Transaction(func(tx *gorm.DB) error {
+			resolvedInviterId, err := model.ResolveInvitationWithTx(tx, affCodeString, common.InviteOnlyRegisterEnabled)
+			if err != nil {
+				return err
+			}
+			inviterId = resolvedInviterId
 			// Create user
 			if err := user.InsertWithTx(tx, inviterId); err != nil {
 				return err

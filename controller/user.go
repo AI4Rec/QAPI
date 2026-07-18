@@ -238,25 +238,41 @@ func Register(c *gin.Context) {
 		return
 	}
 	affCode := user.AffCode // this code is the inviter's code, not the user's own code
-	inviterId, _ := model.GetUserIdByAffCode(affCode)
 	cleanUser := model.User{
 		Username:    user.Username,
 		Password:    user.Password,
 		DisplayName: user.Username,
-		InviterId:   inviterId,
 		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
 	}
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
 	}
-	if err := cleanUser.Insert(inviterId); err != nil {
+	inviterId := 0
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		resolvedInviterId, err := model.ResolveInvitationWithTx(tx, affCode, common.InviteOnlyRegisterEnabled)
+		if err != nil {
+			return err
+		}
+		inviterId = resolvedInviterId
+		return cleanUser.InsertWithTx(tx, inviterId)
+	})
+	if err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+			return
+		}
+		if errors.Is(err, model.ErrInvitationRequired) {
+			common.ApiErrorI18n(c, i18n.MsgUserInvitationRequired)
+			return
+		}
+		if errors.Is(err, model.ErrInvitationInvalid) {
+			common.ApiErrorI18n(c, i18n.MsgUserInvitationInvalid)
 			return
 		}
 		common.ApiError(c, err)
 		return
 	}
+	cleanUser.FinishInsert(inviterId)
 
 	// 获取插入后的用户ID
 	var insertedUser model.User
@@ -443,7 +459,7 @@ func GetAffCode(c *gin.Context) {
 		return
 	}
 	if user.AffCode == "" {
-		user.AffCode = common.GetRandomString(4)
+		user.AffCode = model.NewInvitationCode()
 		if err := user.Update(false); err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

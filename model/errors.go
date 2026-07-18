@@ -14,6 +14,8 @@ var (
 	ErrEmailAlreadyTaken    = errors.New("email already taken")
 	ErrEmailNotFound        = errors.New("email not found")
 	ErrEmailAmbiguous       = errors.New("email matches multiple users")
+	ErrInvitationRequired   = errors.New("invitation code required")
+	ErrInvitationInvalid    = errors.New("invitation code invalid or used")
 )
 
 // Token auth errors

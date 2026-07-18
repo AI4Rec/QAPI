@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -88,6 +88,7 @@ export function SignUpForm({
     resolver: zodResolver(registerFormSchema),
     defaultValues: {
       username: '',
+      aff_code: '',
       email: '',
       password: '',
       confirmPassword: '',
@@ -95,7 +96,12 @@ export function SignUpForm({
   })
 
   const emailValue = form.watch('email')
+  const invitationCodeValue = form.watch('aff_code') || ''
   const emailVerificationRequired = !!status?.email_verification
+  const inviteOnlyRegistration = Boolean(
+    status?.invite_only_register_enabled ??
+    status?.data?.invite_only_register_enabled
+  )
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
@@ -130,10 +136,11 @@ export function SignUpForm({
 
   useEffect(() => {
     const aff = new URLSearchParams(window.location.search).get('aff')?.trim()
-    if (aff) {
-      saveAffiliateCode(aff)
-    }
-  }, [])
+    const invitationCode = aff || getAffiliateCode()
+    if (!invitationCode) return
+    saveAffiliateCode(invitationCode)
+    form.setValue('aff_code', invitationCode)
+  }, [form])
 
   async function onSubmit(data: z.infer<typeof registerFormSchema>) {
     if (requiresLegalConsent && !agreedToLegal) {
@@ -155,6 +162,14 @@ export function SignUpForm({
 
     if (!validateTurnstile()) return
 
+    const invitationCode = (data.aff_code || getAffiliateCode()).trim()
+    if (inviteOnlyRegistration && !invitationCode) {
+      form.setError('aff_code', {
+        message: t('A valid invitation code is required'),
+      })
+      return
+    }
+
     setIsLoading(true)
     try {
       const res = await register({
@@ -162,17 +177,18 @@ export function SignUpForm({
         password: data.password,
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
-        aff_code: getAffiliateCode(),
+        aff_code: invitationCode || undefined,
         turnstile: turnstileToken,
       })
 
       if (res?.success) {
+        saveAffiliateCode('')
         toast.success(t('Account created! Please sign in'))
         redirectToLogin()
       } else {
         toast.error(res?.message || t('Failed to create account'))
       }
-    } catch (_error) {
+    } catch {
       // Errors are handled by global interceptor
     } finally {
       setIsLoading(false)
@@ -216,11 +232,18 @@ export function SignUpForm({
       } else {
         toast.error(res?.message || t('Login failed'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t('Login failed'))
     } finally {
       setIsWeChatSubmitting(false)
     }
+  }
+
+  let sendCodeContent: ReactNode = t('Send code')
+  if (isActive) {
+    sendCodeContent = t('Resend ({{seconds}}s)', { seconds: secondsLeft })
+  } else if (isSendingCode) {
+    sendCodeContent = <Loader2 className='h-4 w-4 animate-spin' />
   }
 
   return (
@@ -244,6 +267,30 @@ export function SignUpForm({
             </FormItem>
           )}
         />
+
+        {inviteOnlyRegistration && (
+          <FormField
+            control={form.control}
+            name='aff_code'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Invitation Code')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder={t('Enter invitation code')}
+                    autoComplete='off'
+                    {...field}
+                    onBlur={() => {
+                      field.onBlur()
+                      saveAffiliateCode(field.value?.trim() || '')
+                    }}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
 
         {/* Password Field */}
         <FormField
@@ -323,13 +370,7 @@ export function SignUpForm({
                 }
                 onClick={handleSendVerificationCode}
               >
-                {isActive ? (
-                  t('Resend ({{seconds}}s)', { seconds: secondsLeft })
-                ) : isSendingCode ? (
-                  <Loader2 className='h-4 w-4 animate-spin' />
-                ) : (
-                  t('Send code')
-                )}
+                {sendCodeContent}
               </Button>
             </div>
           </>
@@ -369,7 +410,11 @@ export function SignUpForm({
         {oauthRegisterEnabled && (
           <OAuthProviders
             status={status}
-            disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+            disabled={
+              isLoading ||
+              (requiresLegalConsent && !agreedToLegal) ||
+              (inviteOnlyRegistration && !invitationCodeValue.trim())
+            }
             onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
             isWeChatLoading={isWeChatSubmitting}
             className='pt-2'
