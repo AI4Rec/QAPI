@@ -1,0 +1,22 @@
+[Unit]
+Description=New API Gateway
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=newapi
+Group=newapi
+WorkingDirectory=/opt/new-api
+ExecStart=/opt/new-api/new-api --port 3000 --log-dir /opt/new-api/logs
+EnvironmentFile=/etc/new-api.env
+Environment=TZ=Asia/Shanghai
+Environment=SQLITE_PATH=/opt/new-api/data/new-api.db
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

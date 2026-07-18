@@ -1,0 +1,37 @@
+[Unit]
+Description=QAPI pooled-capacity monitor
+After=network-online.target cliproxyapi.service new-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/lib/qapi-monitor/qapi_capacity_collector.py
+Restart=always
+RestartSec=5
+RuntimeDirectory=qapi-monitor
+RuntimeDirectoryMode=0755
+StateDirectory=qapi-monitor
+StateDirectoryMode=0700
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/qapi-monitor /run/qapi-monitor
+MemoryHigh=120M
+MemoryMax=180M
+TasksMax=64
+TimeoutStopSec=15s
+
+[Install]
+WantedBy=multi-user.target
