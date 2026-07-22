@@ -123,7 +123,17 @@ export async function getVendors(params?: {
   page_size?: number
 }): Promise<GetVendorsResponse> {
   const res = await api.get('/api/vendors/', {
-    params: params || { page_size: 1000 },
+    params: params || { p: 1, page_size: 20 },
+  })
+  return res.data
+}
+
+export async function getVendorsByIds(
+  ids: number[]
+): Promise<{ success: boolean; data?: Vendor[] }> {
+  if (ids.length === 0) return { success: true, data: [] }
+  const res = await api.get('/api/vendors/batch', {
+    params: { ids: ids.join(',') },
   })
   return res.data
 }
@@ -441,7 +451,11 @@ export async function getDeploymentLogs(
     start_time?: string
     end_time?: string
   }
-): Promise<{ success: boolean; message?: string; data?: string }> {
+): Promise<{
+  success: boolean
+  message?: string
+  data?: { content: string; next_cursor?: string; has_more: boolean }
+}> {
   const res = await api.get(`/api/deployments/${deploymentId}/logs`, { params })
   return res.data
 }

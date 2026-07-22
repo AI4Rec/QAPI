@@ -175,6 +175,43 @@ func buildLegacyParamOverride(paramOverride map[string]interface{}) map[string]i
 	return legacy
 }
 
+// IsHeaderOnlyParamOverride reports whether an override can be applied without
+// inspecting or rewriting the request JSON body.
+func IsHeaderOnlyParamOverride(paramOverride map[string]interface{}) bool {
+	if len(paramOverride) == 0 {
+		return true
+	}
+	if len(buildLegacyParamOverride(paramOverride)) > 0 {
+		return false
+	}
+	operations, ok := tryParseOperations(paramOverride)
+	if !ok {
+		return false
+	}
+	for _, operation := range operations {
+		if len(operation.Conditions) > 0 {
+			return false
+		}
+		switch strings.ToLower(strings.TrimSpace(operation.Mode)) {
+		case "set_header", "delete_header", "copy_header", "move_header", "pass_headers":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// ApplyHeaderOnlyParamOverrideWithRelayInfo applies a previously validated
+// header-only override using a tiny placeholder JSON value.
+func ApplyHeaderOnlyParamOverrideWithRelayInfo(info *RelayInfo) error {
+	paramOverride := getParamOverrideMap(info)
+	if !IsHeaderOnlyParamOverride(paramOverride) {
+		return fmt.Errorf("param override is not header-only")
+	}
+	_, err := ApplyParamOverrideWithRelayInfo([]byte(`{}`), info)
+	return err
+}
+
 func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, error) {
 	paramOverride := getParamOverrideMap(info)
 	if len(paramOverride) == 0 {

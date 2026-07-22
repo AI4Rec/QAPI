@@ -56,6 +56,44 @@ export type ActivationQueueResponse = {
   data?: ActivationQueueOverview
 }
 
+export type ActivationQueueSummary = {
+  paused: boolean
+  last_reconcile_at: number
+  targets: number
+  enabled_targets: number
+  pending_jobs: number
+  running_jobs: number
+  failed_jobs: number
+}
+
+export type ActivationQueueSummaryResponse = {
+  success: boolean
+  message?: string
+  data?: ActivationQueueSummary
+}
+
+export type ActivationQueueJobsResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    page: number
+    page_size: number
+    total: number
+    items: ActivationJob[]
+  }
+}
+
+export type ActivationQueueTargetsResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    page: number
+    page_size: number
+    total: number
+    items: ActivationTarget[]
+  }
+}
+
 export type ActivationActionResponse = {
   success: boolean
   message?: string

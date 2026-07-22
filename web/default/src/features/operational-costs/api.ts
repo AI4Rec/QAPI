@@ -3,7 +3,11 @@ import { api } from '@/lib/api'
 import type {
   AssetCostPayload,
   CostEntryPayload,
+  OperationalAsset,
+  OperationalCostEntry,
   OperationalCostOverviewResponse,
+  OperationalCostPageResponse,
+  OperationalCostSummaryResponse,
 } from './types'
 
 const actionConfig = {
@@ -13,6 +17,38 @@ const actionConfig = {
 
 export async function getOperationalCostOverview(): Promise<OperationalCostOverviewResponse> {
   const response = await api.get('/api/operational-costs/overview')
+  return response.data
+}
+
+export async function getOperationalCostSummary(): Promise<OperationalCostSummaryResponse> {
+  const response = await api.get('/api/operational-costs/summary')
+  return response.data
+}
+
+export async function listOperationalCostEntries(params: {
+  page: number
+  pageSize: number
+}): Promise<OperationalCostPageResponse<OperationalCostEntry>> {
+  const response = await api.get('/api/operational-costs/entries', {
+    params: { p: params.page, page_size: params.pageSize },
+  })
+  return response.data
+}
+
+export async function listOperationalCostArchives(params: {
+  page: number
+  pageSize: number
+  sourceType?: OperationalAsset['source_type']
+  search?: string
+}): Promise<OperationalCostPageResponse<OperationalAsset>> {
+  const response = await api.get('/api/operational-costs/archives', {
+    params: {
+      p: params.page,
+      page_size: params.pageSize,
+      source_type: params.sourceType,
+      search: params.search,
+    },
+  })
   return response.data
 }
 

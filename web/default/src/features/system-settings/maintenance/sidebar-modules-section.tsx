@@ -138,6 +138,10 @@ export function SidebarModulesSection({
         title: t('Operational Costs'),
         description: t('Track asset and custom operating costs.'),
       },
+      token_sales: {
+        title: t('Key Sales'),
+        description: t('Create and monitor manually delivered API keys.'),
+      },
       models: {
         title: t('Models'),
         description: t('Manage catalog visibility and pricing.'),

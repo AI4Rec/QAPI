@@ -259,14 +259,18 @@ func CreateBodyStorage(data []byte) (BodyStorage, error) {
 }
 
 // CreateBodyStorageFromReader 从 Reader 创建存储（用于大请求的流式处理）
-func CreateBodyStorageFromReader(reader io.Reader, contentLength int64, maxBytes int64) (BodyStorage, error) {
+func CreateBodyStorageFromReader(reader io.Reader, contentLength int64, maxBytes int64, forceDisk bool) (BodyStorage, error) {
 	threshold := GetDiskCacheThresholdBytes()
+	reservedSize := contentLength
+	if reservedSize <= 0 {
+		reservedSize = maxBytes
+	}
 
-	// 如果启用了磁盘缓存且内容长度超过阈值，直接使用磁盘存储
-	if IsDiskCacheEnabled() &&
-		contentLength > 0 &&
-		contentLength >= threshold &&
-		IsDiskCacheAvailable(contentLength) {
+	useDisk := forceDisk || (IsDiskCacheEnabled() && contentLength > 0 && contentLength >= threshold)
+	if useDisk {
+		if !IsDiskCacheCapacityAvailable(reservedSize) {
+			return nil, fmt.Errorf("disk body cache capacity exceeded")
+		}
 		storage, err := newDiskStorageFromReader(reader, maxBytes, GetDiskCachePath())
 		if err != nil {
 			if IsRequestBodyTooLargeError(err) {

@@ -1,15 +1,15 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArchiveRestore, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
+import { PaginationControls } from '@/components/pagination-controls'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -20,10 +20,11 @@ import { Input } from '@/components/ui/input'
 import {
   createCostEntry,
   deleteCostEntry,
-  getOperationalCostOverview,
-  restoreOperationalAsset,
+  getOperationalCostSummary,
+  listOperationalCostEntries,
   updateCostEntry,
 } from './api'
+import { ArchivedAssetsPanel } from './components/archived-assets-panel'
 import type { OperationalCostEntry } from './types'
 
 function formatMoney(minor: number) {
@@ -54,10 +55,21 @@ export function OperationalCosts() {
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [workingId, setWorkingId] = useState<number | null>(null)
-  const query = useQuery({
-    queryKey: ['operational-costs'],
-    queryFn: getOperationalCostOverview,
+  const [entryPageIndex, setEntryPageIndex] = useState(0)
+  const [entryPageSize, setEntryPageSize] = useState(20)
+  const summaryQuery = useQuery({
+    queryKey: ['operational-costs', 'summary'],
+    queryFn: getOperationalCostSummary,
     staleTime: 15_000,
+  })
+  const entriesQuery = useQuery({
+    queryKey: ['operational-costs', 'entries', entryPageIndex, entryPageSize],
+    queryFn: () =>
+      listOperationalCostEntries({
+        page: entryPageIndex + 1,
+        pageSize: entryPageSize,
+      }),
+    placeholderData: (previous) => previous,
   })
 
   const resetForm = () => {
@@ -115,8 +127,8 @@ export function OperationalCosts() {
     setNote(entry.note)
   }
 
-  const overview = query.data?.data
-  const summary = overview?.summary
+  const summary = summaryQuery.data?.data?.summary
+  const entries = entriesQuery.data?.data?.items ?? []
 
   return (
     <SectionPageLayout>
@@ -124,7 +136,7 @@ export function OperationalCosts() {
         {t('Operational Costs')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        {query.isLoading ? (
+        {summaryQuery.isLoading ? (
           <div className='flex items-center justify-center gap-2 py-16'>
             <Loader2 className='size-5 animate-spin' />
             {t('Loading operational costs')}
@@ -154,7 +166,7 @@ export function OperationalCosts() {
               ))}
             </div>
 
-            <div className='grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]'>
+            <div className='flex min-w-0 flex-col gap-6'>
               <Card>
                 <CardHeader>
                   <CardTitle>{t('Operating ledger')}</CardTitle>
@@ -226,7 +238,7 @@ export function OperationalCosts() {
                         </tr>
                       </thead>
                       <tbody className='divide-y'>
-                        {(overview?.entries || []).map((entry) => (
+                        {entries.map((entry) => (
                           <tr key={entry.id}>
                             <td className='p-3'>
                               {formatDate(entry.occurred_at)}
@@ -282,6 +294,12 @@ export function OperationalCosts() {
                                       await queryClient.invalidateQueries({
                                         queryKey: ['operational-costs'],
                                       })
+                                      if (
+                                        entries.length === 1 &&
+                                        entryPageIndex > 0
+                                      ) {
+                                        setEntryPageIndex(entryPageIndex - 1)
+                                      }
                                     } catch (error) {
                                       toast.error(
                                         error instanceof Error
@@ -302,91 +320,25 @@ export function OperationalCosts() {
                       </tbody>
                     </table>
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t('Archived assets')}</CardTitle>
-                  <CardDescription>
-                    {t(
-                      'Archived assets no longer participate in polling, routing, or activation tasks.'
-                    )}
-                  </CardDescription>
-                  <CardAction>
-                    <Badge variant='secondary'>
-                      {summary?.archived_assets || 0}
-                    </Badge>
-                  </CardAction>
-                </CardHeader>
-                <CardContent className='space-y-2'>
-                  {(overview?.archives || []).length === 0 ? (
-                    <div className='text-muted-foreground py-8 text-center text-sm'>
-                      {t('No archived assets')}
-                    </div>
-                  ) : (
-                    (overview?.archives || []).map((asset) => (
-                      <div
-                        key={asset.id}
-                        className='flex items-center justify-between gap-3 rounded-lg border p-3'
-                      >
-                        <div className='min-w-0'>
-                          <div className='truncate font-medium'>
-                            {asset.display_name}
-                          </div>
-                          <div className='text-muted-foreground mt-1 text-xs'>
-                            {asset.source_type === 'cpa_account'
-                              ? 'CPA'
-                              : t('Channel')}{' '}
-                            · {formatMoney(asset.cost_minor)} ·{' '}
-                            {formatDate(asset.archived_at)}
-                          </div>
-                          {asset.archive_reason && (
-                            <div className='text-muted-foreground mt-1 truncate text-xs'>
-                              {asset.archive_reason}
-                            </div>
-                          )}
-                        </div>
-                        <Button
-                          variant='outline'
-                          size='sm'
-                          disabled={workingId === asset.id}
-                          onClick={async () => {
-                            setWorkingId(asset.id)
-                            try {
-                              const result = await restoreOperationalAsset(
-                                asset.id
-                              )
-                              if (!result.success) {
-                                throw new Error(
-                                  result.message || t('Failed to restore asset')
-                                )
-                              }
-                              await queryClient.invalidateQueries({
-                                queryKey: ['operational-costs'],
-                              })
-                              toast.success(
-                                t('Asset restored in disabled state')
-                              )
-                            } catch (error) {
-                              toast.error(
-                                error instanceof Error
-                                  ? error.message
-                                  : t('Failed to restore asset')
-                              )
-                            } finally {
-                              setWorkingId(null)
-                            }
-                          }}
-                        >
-                          <ArchiveRestore className='size-4' />
-                          {t('Restore')}
-                        </Button>
-                      </div>
-                    ))
+                  {entries.length > 0 && (
+                    <PaginationControls
+                      pageIndex={entryPageIndex}
+                      pageSize={entryPageSize}
+                      totalCount={entriesQuery.data?.data?.total ?? 0}
+                      pageCount={Math.ceil(
+                        (entriesQuery.data?.data?.total ?? 0) / entryPageSize
+                      )}
+                      onPageIndexChange={setEntryPageIndex}
+                      onPageSizeChange={(pageSize) => {
+                        setEntryPageSize(pageSize)
+                        setEntryPageIndex(0)
+                      }}
+                    />
                   )}
                 </CardContent>
               </Card>
+
+              <ArchivedAssetsPanel />
             </div>
           </div>
         )}

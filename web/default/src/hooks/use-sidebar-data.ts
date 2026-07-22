@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  BadgeDollarSign,
   Box,
   CreditCard,
   FileText,
@@ -129,6 +130,11 @@ export function useSidebarData(): SidebarData {
             title: t('Operational Costs'),
             url: '/operational-costs',
             icon: WalletCards,
+          },
+          {
+            title: t('Key Sales'),
+            url: '/token-sales/keys',
+            icon: BadgeDollarSign,
           },
           {
             title: t('Models'),

@@ -254,7 +254,7 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage,omitempty"`
 	// IncludeObfuscation is only for /v1/responses stream payload.
 	// This field is filtered by default and can be enabled via channel setting allow_include_obfuscation.
-	IncludeObfuscation bool `json:"include_obfuscation,omitempty"`
+	IncludeObfuscation *bool `json:"include_obfuscation,omitempty"`
 }
 
 func (r *GeneralOpenAIRequest) GetMaxTokens() uint {
@@ -854,7 +854,9 @@ type OpenAIResponsesRequest struct {
 	Reasoning          *Reasoning      `json:"reasoning,omitempty"`
 	// ServiceTier specifies upstream service level and may affect billing.
 	// This field is filtered by default and can be enabled via channel setting allow_service_tier.
-	ServiceTier string `json:"service_tier,omitempty"`
+	ServiceTier  string          `json:"service_tier,omitempty"`
+	InferenceGeo json.RawMessage `json:"inference_geo,omitempty"`
+	Speed        json.RawMessage `json:"speed,omitempty"`
 	// Store controls whether upstream may store request/response data.
 	// This field is allowed by default and can be disabled via channel setting disable_store.
 	Store                json.RawMessage `json:"store,omitempty"`

@@ -142,6 +142,20 @@ export interface SelfSubscriptionData {
   billing_preference: string
   subscriptions: UserSubscriptionRecord[]
   all_subscriptions: UserSubscriptionRecord[]
+  history: {
+    page: number
+    page_size: number
+    total: number
+    items: UserSubscriptionRecord[]
+  }
+  purchase_counts: Record<string, number>
+}
+
+export interface UserSubscriptionPage {
+  page: number
+  page_size: number
+  total: number
+  items: UserSubscriptionRecord[]
 }
 
 // ============================================================================

@@ -884,6 +884,48 @@ func GetAllUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
 	return buildSubscriptionSummaries(subs), nil
 }
 
+func GetUserSubscriptionsPage(userId int, pageInfo *common.PageInfo) ([]SubscriptionSummary, int64, error) {
+	if userId <= 0 {
+		return nil, 0, errors.New("invalid userId")
+	}
+	query := DB.Model(&UserSubscription{}).Where("user_id = ?", userId)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var subs []UserSubscription
+	err := query.Order("end_time desc, id desc").
+		Limit(pageInfo.GetPageSize()).
+		Offset(pageInfo.GetStartIdx()).
+		Find(&subs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return buildSubscriptionSummaries(subs), total, nil
+}
+
+func GetUserSubscriptionPurchaseCounts(userId int) (map[int]int64, error) {
+	if userId <= 0 {
+		return nil, errors.New("invalid userId")
+	}
+	var rows []struct {
+		PlanId int   `gorm:"column:plan_id"`
+		Count  int64 `gorm:"column:count"`
+	}
+	if err := DB.Model(&UserSubscription{}).
+		Select("plan_id, COUNT(*) AS count").
+		Where("user_id = ?", userId).
+		Group("plan_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[int]int64, len(rows))
+	for _, row := range rows {
+		counts[row.PlanId] = row.Count
+	}
+	return counts, nil
+}
+
 func buildSubscriptionSummaries(subs []UserSubscription) []SubscriptionSummary {
 	if len(subs) == 0 {
 		return []SubscriptionSummary{}

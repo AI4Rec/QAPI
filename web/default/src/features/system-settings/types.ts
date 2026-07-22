@@ -416,7 +416,13 @@ export type DifferencesMap = Record<
 export type UpstreamChannelsResponse = {
   success: boolean
   message: string
-  data: UpstreamChannel[]
+  data: {
+    page: number
+    page_size: number
+    total: number
+    items: UpstreamChannel[]
+    presets: UpstreamChannel[]
+  }
 }
 
 export type UpstreamConfig = {

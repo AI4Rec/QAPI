@@ -18,13 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
 import { Loader2, RefreshCw, Trash2, Power, PowerOff } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StaticDataTable } from '@/components/data-table'
 import { Dialog } from '@/components/dialog'
+import { PaginationControls } from '@/components/pagination-controls'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -149,7 +150,7 @@ export function MultiKeyManageDialog({
   }
 
   const handleStatusFilterChange = (value: string) => {
-    const newFilter = value === 'all' ? null : parseInt(value)
+    const newFilter = value === 'all' ? null : Number.parseInt(value)
     setStatusFilter(newFilter)
     setCurrentPage(1)
     loadKeyStatus(1, pageSize, newFilter)
@@ -294,12 +295,10 @@ export function MultiKeyManageDialog({
           {/* Toolbar */}
           <div className='flex shrink-0 items-center justify-between'>
             <Select
-              items={[
-                ...MULTI_KEY_FILTER_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: t(option.label),
-                })),
-              ]}
+              items={MULTI_KEY_FILTER_OPTIONS.map((option) => ({
+                value: option.value,
+                label: t(option.label),
+              }))}
               value={statusFilter === null ? 'all' : statusFilter.toString()}
               onValueChange={(v) => v !== null && handleStatusFilterChange(v)}
             >
@@ -378,94 +377,88 @@ export function MultiKeyManageDialog({
 
           {/* Table */}
           <div className='min-h-0 flex-1 overflow-auto rounded-md border'>
-            {isLoading ? (
-              <div className='flex items-center justify-center py-12'>
-                <Loader2 className='text-muted-foreground h-8 w-8 animate-spin' />
-              </div>
-            ) : keys.length === 0 ? (
-              <div className='text-muted-foreground py-12 text-center'>
-                {t('No keys found')}
-              </div>
-            ) : (
-              <StaticDataTable
-                className='rounded-none border-0'
-                tableClassName='min-w-[800px]'
-                data={keys}
-                getRowKey={(key) => key.index}
-                columns={[
-                  {
-                    id: 'index',
-                    header: t('Index'),
-                    className: 'w-20',
-                    cellClassName: 'font-mono text-sm',
-                    cell: (key) => `#${key.index + 1}`,
-                  },
-                  {
-                    id: 'status',
-                    header: t('Status'),
-                    className: 'w-32',
-                    cell: (key) => renderStatusBadge(key.status),
-                  },
-                  {
-                    id: 'reason',
-                    header: t('Disabled Reason'),
-                    className: 'min-w-[200px]',
-                    cellClassName: 'max-w-xs truncate text-sm',
-                    cell: (key) => key.reason || '-',
-                  },
-                  {
-                    id: 'disabled-time',
-                    header: t('Disabled Time'),
-                    className: 'w-44',
-                    cellClassName: 'text-muted-foreground text-sm',
-                    cell: (key) => formatKeyTimestamp(key.disabled_time),
-                  },
-                  {
-                    id: 'actions',
-                    header: t('Actions'),
-                    className: 'text-right',
-                    cell: (key) => (
-                      <MultiKeyTableRowActions
-                        keyIndex={key.index}
-                        status={key.status}
-                        canDelete={canEditSensitive}
-                        onAction={setConfirmAction}
-                      />
-                    ),
-                  },
-                ]}
-              />
-            )}
+            {((): ReactNode => {
+              if (isLoading) {
+                return (
+                  <div className='flex items-center justify-center py-12'>
+                    <Loader2 className='text-muted-foreground h-8 w-8 animate-spin' />
+                  </div>
+                )
+              }
+              if (keys.length === 0) {
+                return (
+                  <div className='text-muted-foreground py-12 text-center'>
+                    {t('No keys found')}
+                  </div>
+                )
+              }
+              return (
+                <StaticDataTable
+                  className='rounded-none border-0'
+                  tableClassName='min-w-[800px]'
+                  data={keys}
+                  getRowKey={(key) => key.index}
+                  columns={[
+                    {
+                      id: 'index',
+                      header: t('Index'),
+                      className: 'w-20',
+                      cellClassName: 'font-mono text-sm',
+                      cell: (key) => `#${key.index + 1}`,
+                    },
+                    {
+                      id: 'status',
+                      header: t('Status'),
+                      className: 'w-32',
+                      cell: (key) => renderStatusBadge(key.status),
+                    },
+                    {
+                      id: 'reason',
+                      header: t('Disabled Reason'),
+                      className: 'min-w-[200px]',
+                      cellClassName: 'max-w-xs truncate text-sm',
+                      cell: (key) => key.reason || '-',
+                    },
+                    {
+                      id: 'disabled-time',
+                      header: t('Disabled Time'),
+                      className: 'w-44',
+                      cellClassName: 'text-muted-foreground text-sm',
+                      cell: (key) => formatKeyTimestamp(key.disabled_time),
+                    },
+                    {
+                      id: 'actions',
+                      header: t('Actions'),
+                      className: 'text-right',
+                      cell: (key) => (
+                        <MultiKeyTableRowActions
+                          keyIndex={key.index}
+                          status={key.status}
+                          canDelete={canEditSensitive}
+                          onAction={setConfirmAction}
+                        />
+                      ),
+                    },
+                  ]}
+                />
+              )
+            })()}
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className='flex shrink-0 items-center justify-between'>
-              <div className='text-muted-foreground text-sm'>
-                {t('Page {{current}} of {{total}}', {
-                  current: currentPage,
-                  total: totalPages,
-                })}
-              </div>
-              <div className='flex gap-2'>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage === 1 || isLoading}
-                >
-                  {t('Previous')}
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage >= totalPages || isLoading}
-                >
-                  {t('Next')}
-                </Button>
-              </div>
-            </div>
+          {total > 0 && (
+            <PaginationControls
+              pageIndex={currentPage - 1}
+              pageSize={pageSize}
+              totalCount={total}
+              pageCount={totalPages}
+              onPageIndexChange={(pageIndex) => handlePageChange(pageIndex + 1)}
+              onPageSizeChange={(nextPageSize) => {
+                setPageSize(nextPageSize)
+                setCurrentPage(1)
+                void loadKeyStatus(1, nextPageSize, statusFilter)
+              }}
+            />
           )}
         </div>
       </Dialog>

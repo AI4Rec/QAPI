@@ -14,11 +14,16 @@ import (
 )
 
 const (
-	OperationalAssetTypeCPAAccount = "cpa_account"
-	OperationalAssetTypeChannel    = "channel"
+	OperationalAssetTypeCPAAccount     = "cpa_account"
+	OperationalAssetTypeSub2APIAccount = "sub2api_account"
+	OperationalAssetTypeChannel        = "channel"
 
 	OperationalAssetStateActive   = "active"
 	OperationalAssetStateArchived = "archived"
+
+	CPAAccountPoolImported  = "cpa_import"
+	CPAAccountPoolTemporary = "temporary"
+	CPAAccountPoolOfficial  = "official_login"
 )
 
 type OperationalAsset struct {
@@ -28,6 +33,7 @@ type OperationalAsset struct {
 	SourceID      int64  `json:"source_id" gorm:"bigint;index"`
 	SourceRef     string `json:"-" gorm:"type:varchar(255);index"`
 	DisplayName   string `json:"display_name" gorm:"type:varchar(255);index"`
+	PoolType      string `json:"pool_type,omitempty" gorm:"type:varchar(32);index"`
 	State         string `json:"state" gorm:"type:varchar(32);index"`
 	CostMinor     int64  `json:"cost_minor" gorm:"bigint"`
 	Currency      string `json:"currency" gorm:"type:varchar(8)"`
@@ -104,6 +110,10 @@ func OperationalChannelAssetKey(channelID int) string {
 	return "channel:" + strconv.Itoa(channelID)
 }
 
+func OperationalSub2APIAssetKey(accountID int64) string {
+	return "sub2api:" + strconv.FormatInt(accountID, 10)
+}
+
 func UpsertOperationalAssetSeen(asset *OperationalAsset) error {
 	if asset == nil || asset.SourceType == "" || asset.SourceKey == "" {
 		return errors.New("operational asset source is required")
@@ -141,6 +151,26 @@ func GetOperationalAssetsByKeys(sourceType string, sourceKeys []string) (map[str
 		result[asset.SourceKey] = asset
 	}
 	return result, nil
+}
+
+func SetCPAOperationalAssetPool(asset *OperationalAsset, poolType string, userID int) error {
+	if asset == nil || asset.SourceKey == "" {
+		return errors.New("CPA operational asset is required")
+	}
+	if poolType != CPAAccountPoolImported && poolType != CPAAccountPoolTemporary && poolType != CPAAccountPoolOfficial {
+		return errors.New("invalid CPA account pool")
+	}
+	asset.SourceType = OperationalAssetTypeCPAAccount
+	if err := UpsertOperationalAssetSeen(asset); err != nil {
+		return err
+	}
+	return DB.Model(&OperationalAsset{}).
+		Where("source_type = ? AND source_key = ?", OperationalAssetTypeCPAAccount, asset.SourceKey).
+		Updates(map[string]any{
+			"pool_type":  poolType,
+			"updated_by": userID,
+			"updated_at": common.GetTimestamp(),
+		}).Error
 }
 
 func SetOperationalAssetCost(asset *OperationalAsset, costMinor int64, costDate int64, note string, userID int) error {
@@ -263,27 +293,46 @@ func ListArchivedOperationalAssets() ([]OperationalAsset, error) {
 	return assets, err
 }
 
-func GetOperationalCostSummary() (*OperationalCostSummary, error) {
+func ListArchivedOperationalAssetsPage(pageInfo *common.PageInfo, sourceType string, search string) ([]OperationalAsset, int64, error) {
+	query := DB.Model(&OperationalAsset{}).Where("state = ?", OperationalAssetStateArchived)
+	if sourceType != "" {
+		query = query.Where("source_type = ?", sourceType)
+	}
+	if search = strings.TrimSpace(search); search != "" {
+		pattern := "%" + strings.ToLower(search) + "%"
+		query = query.Where(
+			"(LOWER(display_name) LIKE ? OR LOWER(archive_reason) LIKE ? OR LOWER(cost_note) LIKE ?)",
+			pattern, pattern, pattern,
+		)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 	var assets []OperationalAsset
-	if err := DB.Find(&assets).Error; err != nil {
-		return nil, err
-	}
-	var entries []OperationalCostEntry
-	if err := DB.Where("voided_at = 0").Find(&entries).Error; err != nil {
-		return nil, err
-	}
+	err := query.Order("archived_at desc, id desc").
+		Limit(pageInfo.GetPageSize()).
+		Offset(pageInfo.GetStartIdx()).
+		Find(&assets).Error
+	return assets, total, err
+}
+
+func GetOperationalCostSummary() (*OperationalCostSummary, error) {
 	summary := &OperationalCostSummary{}
-	for _, asset := range assets {
-		if asset.State == OperationalAssetStateArchived {
-			summary.ArchivedAssets++
-			summary.ArchivedAssetCost += asset.CostMinor
-		} else {
-			summary.CurrentAssets++
-			summary.CurrentAssetCost += asset.CostMinor
-		}
+	if err := DB.Model(&OperationalAsset{}).Select(`
+		COALESCE(SUM(CASE WHEN state = ? THEN cost_minor ELSE 0 END), 0) AS archived_asset_cost,
+		COALESCE(SUM(CASE WHEN state <> ? THEN cost_minor ELSE 0 END), 0) AS current_asset_cost,
+		COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS archived_assets,
+		COALESCE(SUM(CASE WHEN state <> ? THEN 1 ELSE 0 END), 0) AS current_assets
+	`, OperationalAssetStateArchived, OperationalAssetStateArchived, OperationalAssetStateArchived, OperationalAssetStateArchived).
+		Scan(summary).Error; err != nil {
+		return nil, err
 	}
-	for _, entry := range entries {
-		summary.CustomCost += entry.AmountMinor
+	if err := DB.Model(&OperationalCostEntry{}).
+		Select("COALESCE(SUM(amount_minor), 0)").
+		Where("voided_at = 0").
+		Scan(&summary.CustomCost).Error; err != nil {
+		return nil, err
 	}
 	summary.TotalCost = summary.CurrentAssetCost + summary.ArchivedAssetCost + summary.CustomCost
 	return summary, nil
@@ -326,6 +375,20 @@ func ListOperationalCostEntries() ([]OperationalCostEntry, error) {
 	var entries []OperationalCostEntry
 	err := DB.Where("voided_at = 0").Order("occurred_at desc, id desc").Find(&entries).Error
 	return entries, err
+}
+
+func ListOperationalCostEntriesPage(pageInfo *common.PageInfo) ([]OperationalCostEntry, int64, error) {
+	query := DB.Model(&OperationalCostEntry{}).Where("voided_at = 0")
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var entries []OperationalCostEntry
+	err := query.Order("occurred_at desc, id desc").
+		Limit(pageInfo.GetPageSize()).
+		Offset(pageInfo.GetStartIdx()).
+		Find(&entries).Error
+	return entries, total, err
 }
 
 func CreateOperationalCostEntry(entry *OperationalCostEntry) error {

@@ -37,6 +37,10 @@ data/
 token_estimator_test.go
 skills-lock.json
 .playwright-mcp
+graphify-out/
+**/graphify-out/
+**/__pycache__/
+opt/
 
 # Deployment data and local release artifacts must stay outside Git.
 backups/

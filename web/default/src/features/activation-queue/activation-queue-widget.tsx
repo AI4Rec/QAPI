@@ -28,8 +28,10 @@ import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { ActivationQueueDialog } from './activation-queue-dialog'
 import {
-  getActivationQueue,
+  getActivationQueueSummary,
+  listActivationQueueJobs,
   reconcileActivationQueue,
   runActivationJobNow,
   setActivationQueuePaused,
@@ -193,9 +195,18 @@ export function ActivationQueueWidget() {
   const { t } = useTranslation()
   const userRole = useAuthStore((state) => state.auth.user?.role ?? 0)
   const [workingKey, setWorkingKey] = useState<string | null>(null)
-  const query = useQuery({
-    queryKey: ['activation-queue'],
-    queryFn: getActivationQueue,
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const summaryQuery = useQuery({
+    queryKey: ['activation-queue', 'summary'],
+    queryFn: getActivationQueueSummary,
+    enabled: userRole >= ROLE.ADMIN,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
+  const jobsQuery = useQuery({
+    queryKey: ['activation-queue', 'jobs', 0, 10],
+    queryFn: () => listActivationQueueJobs({ page: 1, pageSize: 10 }),
     enabled: userRole >= ROLE.ADMIN,
     refetchInterval: 30_000,
     staleTime: 15_000,
@@ -203,13 +214,9 @@ export function ActivationQueueWidget() {
 
   if (userRole < ROLE.ADMIN) return null
 
-  const overview = query.data?.data
-  const jobs = overview?.jobs ?? []
+  const overview = summaryQuery.data?.data
+  const jobs = jobsQuery.data?.data?.items ?? []
   const activeJobs = jobs.filter((job) => ACTIVE_STATUSES.has(job.status))
-  const historyJobs = jobs
-    .filter((job) => !ACTIVE_STATUSES.has(job.status))
-    .slice(-10)
-    .reverse()
   const nextJob = activeJobs.find((job) => job.status === 'pending')
 
   const runAction = async (key: string, action: () => Promise<unknown>) => {
@@ -219,7 +226,7 @@ export function ActivationQueueWidget() {
       if (result.success === false) {
         throw new Error(result.message || t('Operation failed'))
       }
-      await query.refetch()
+      await Promise.all([summaryQuery.refetch(), jobsQuery.refetch()])
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('Operation failed')
@@ -229,8 +236,13 @@ export function ActivationQueueWidget() {
     }
   }
 
+  const openDetails = () => {
+    setPopoverOpen(false)
+    window.setTimeout(() => setDetailsOpen(true), 0)
+  }
+
   let activeJobsContent: ReactNode
-  if (query.isLoading) {
+  if (summaryQuery.isLoading || jobsQuery.isLoading) {
     activeJobsContent = (
       <div className='flex items-center justify-center gap-2 py-8 text-sm'>
         <Loader2 className='size-4 animate-spin' />
@@ -255,114 +267,102 @@ export function ActivationQueueWidget() {
   }
 
   return (
-    <Popover>
-      <PopoverTrigger
-        render={
-          <Button variant='outline' size='sm' className='max-w-[320px]' />
-        }
-      >
-        <AlarmClock className='size-4' />
-        <span className='max-w-[220px] truncate max-sm:hidden'>
-          {nextJob
-            ? `${formatTime(nextJob.scheduled_at)} ${t('Ping')} ${nextJob.target.display_name}`
-            : t('Activation queue idle')}
-        </span>
-        {activeJobs.length > 0 && (
-          <Badge variant='secondary'>{activeJobs.length}</Badge>
-        )}
-      </PopoverTrigger>
-      <PopoverContent
-        side='bottom'
-        align='end'
-        sideOffset={10}
-        className='w-[min(430px,calc(100vw-2rem))] gap-3 p-3'
-      >
-        <div className='flex items-start justify-between gap-2'>
-          <div>
-            <div className='flex items-center gap-2 font-semibold'>
-              <AlarmClock className='size-4' />
-              {t('Automatic activation queue')}
-              <Badge variant={overview?.paused ? 'secondary' : 'outline'}>
-                {overview?.paused ? t('Paused') : t('Running')}
-              </Badge>
-            </div>
-            <div className='text-muted-foreground mt-1 text-xs'>
-              {t('Last discovery')}:{' '}
-              {formatDateTime(overview?.last_reconcile_at ?? 0)}
-            </div>
-          </div>
-          <div className='flex gap-1'>
-            <Button
-              size='icon-sm'
-              variant='outline'
-              disabled={workingKey !== null}
-              onClick={() =>
-                runAction('reconcile:all', reconcileActivationQueue)
-              }
-              aria-label={t('Rediscover')}
-            >
-              <RefreshCw
-                className={cn('size-4', query.isFetching && 'animate-spin')}
-              />
-            </Button>
-            <Button
-              size='icon-sm'
-              variant={overview?.paused ? 'default' : 'outline'}
-              disabled={workingKey !== null}
-              onClick={() =>
-                runAction('pause:all', () =>
-                  setActivationQueuePaused(!overview?.paused)
-                )
-              }
-              aria-label={
-                overview?.paused ? t('Resume queue') : t('Pause queue')
-              }
-            >
-              {overview?.paused ? (
-                <CirclePlay className='size-4' />
-              ) : (
-                <CirclePause className='size-4' />
-              )}
-            </Button>
-          </div>
-        </div>
-
-        <div className='flex gap-2 text-xs'>
-          <Badge variant='outline'>
-            {t('Pending')} {activeJobs.length}
-          </Badge>
-          <Badge variant='outline'>
-            {t('Targets')} {overview?.targets.length ?? 0}
-          </Badge>
-          <Badge variant='outline'>
-            {t('Failed')} {jobs.filter((job) => job.status === 'failed').length}
-          </Badge>
-        </div>
-
-        <ScrollArea className='max-h-[55vh] pr-2'>
-          <div className='space-y-2'>
-            {activeJobsContent}
-
-            {historyJobs.length > 0 && (
-              <div className='pt-2'>
-                <div className='text-muted-foreground mb-2 text-xs font-medium'>
-                  {t('Recent executions')}
-                </div>
-                <div className='space-y-2 opacity-80'>
-                  {historyJobs.map((job) => (
-                    <QueueJobRow
-                      key={job.id}
-                      job={job}
-                      workingKey={workingKey}
-                      onAction={runAction}
-                    />
-                  ))}
-                </div>
+    <>
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        <PopoverTrigger
+          render={
+            <Button variant='outline' size='sm' className='max-w-[320px]' />
+          }
+        >
+          <AlarmClock className='size-4' />
+          <span className='max-w-[220px] truncate max-sm:hidden'>
+            {nextJob
+              ? `${formatTime(nextJob.scheduled_at)} ${t('Ping')} ${nextJob.target.display_name}`
+              : t('Activation queue idle')}
+          </span>
+          {activeJobs.length > 0 && (
+            <Badge variant='secondary'>{activeJobs.length}</Badge>
+          )}
+        </PopoverTrigger>
+        <PopoverContent
+          side='bottom'
+          align='end'
+          sideOffset={10}
+          className='w-[min(430px,calc(100vw-2rem))] gap-3 p-3'
+        >
+          <div className='flex items-start justify-between gap-2'>
+            <div>
+              <div className='flex items-center gap-2 font-semibold'>
+                <AlarmClock className='size-4' />
+                {t('Automatic activation queue')}
+                <Badge variant={overview?.paused ? 'secondary' : 'outline'}>
+                  {overview?.paused ? t('Paused') : t('Running')}
+                </Badge>
               </div>
-            )}
+              <div className='text-muted-foreground mt-1 text-xs'>
+                {t('Last discovery')}:{' '}
+                {formatDateTime(overview?.last_reconcile_at ?? 0)}
+              </div>
+            </div>
+            <div className='flex gap-1'>
+              <Button
+                size='icon-sm'
+                variant='outline'
+                disabled={workingKey !== null}
+                onClick={() =>
+                  runAction('reconcile:all', reconcileActivationQueue)
+                }
+                aria-label={t('Rediscover')}
+              >
+                <RefreshCw
+                  className={cn(
+                    'size-4',
+                    (summaryQuery.isFetching || jobsQuery.isFetching) &&
+                      'animate-spin'
+                  )}
+                />
+              </Button>
+              <Button
+                size='icon-sm'
+                variant={overview?.paused ? 'default' : 'outline'}
+                disabled={workingKey !== null}
+                onClick={() =>
+                  runAction('pause:all', () =>
+                    setActivationQueuePaused(!overview?.paused)
+                  )
+                }
+                aria-label={
+                  overview?.paused ? t('Resume queue') : t('Pause queue')
+                }
+              >
+                {overview?.paused ? (
+                  <CirclePlay className='size-4' />
+                ) : (
+                  <CirclePause className='size-4' />
+                )}
+              </Button>
+            </div>
           </div>
-        </ScrollArea>
-      </PopoverContent>
-    </Popover>
+
+          <div className='flex gap-2 text-xs'>
+            <Badge variant='outline'>
+              {t('Pending')}{' '}
+              {(overview?.pending_jobs ?? 0) + (overview?.running_jobs ?? 0)}
+            </Badge>
+            <Badge variant='outline'>
+              {t('Targets')} {overview?.targets ?? 0}
+            </Badge>
+          </div>
+
+          <ScrollArea className='max-h-[55vh] pr-2'>
+            <div className='space-y-2'>{activeJobsContent}</div>
+          </ScrollArea>
+          <Button variant='outline' size='sm' onClick={openDetails}>
+            {t('Targets')}
+          </Button>
+        </PopoverContent>
+      </Popover>
+      <ActivationQueueDialog open={detailsOpen} onOpenChange={setDetailsOpen} />
+    </>
   )
 }

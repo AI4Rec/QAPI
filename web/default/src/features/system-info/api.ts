@@ -19,9 +19,17 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import type {
+  RuntimeProtectionStatsResponse,
   SystemInstanceDeleteResponse,
   SystemInstanceListResponse,
 } from './types'
+
+export async function getRuntimeProtectionStats() {
+  const res = await api.get<RuntimeProtectionStatsResponse>(
+    '/api/performance/stats'
+  )
+  return res.data
+}
 
 export async function listSystemInstances() {
   const res = await api.get<SystemInstanceListResponse>(

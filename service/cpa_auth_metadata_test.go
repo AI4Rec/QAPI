@@ -64,6 +64,40 @@ func TestIsCLIProxyCompatibleCPAIDTokenAcceptsArrayAudience(t *testing.T) {
 	assert.True(t, IsCLIProxyCompatibleCPAIDToken(token))
 }
 
+func TestIsCLIProxyCompatibleCPAToken(t *testing.T) {
+	tests := []struct {
+		name  string
+		token string
+		want  bool
+	}{
+		{
+			name: "array audience without embedded account id",
+			token: cpaTestJWT(t, map[string]any{
+				"aud": []any{"https://api.openai.com/v1"},
+			}),
+			want: true,
+		},
+		{
+			name: "string audience",
+			token: cpaTestJWT(t, map[string]any{
+				"aud": "chatgpt2api-export",
+			}),
+			want: false,
+		},
+		{
+			name:  "malformed jwt",
+			token: "not-a-jwt",
+			want:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, IsCLIProxyCompatibleCPAToken(test.token))
+		})
+	}
+}
+
 func TestBuildCPAAuthMetadataPatchReplacesBrokenIDTokenWithAccessToken(t *testing.T) {
 	brokenIDToken := cpaTestJWT(t, map[string]any{
 		"aud": "chatgpt2api-export",

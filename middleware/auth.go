@@ -440,6 +440,11 @@ func TokenAuth() func(c *gin.Context) {
 		if err != nil {
 			return
 		}
+		release, allowed := acquireTokenRequestLimit(c, token)
+		if !allowed {
+			return
+		}
+		defer release()
 		c.Next()
 	}
 }
@@ -453,6 +458,8 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	c.Set("token_key", token.Key)
 	c.Set("token_name", token.Name)
 	c.Set("token_unlimited_quota", token.UnlimitedQuota)
+	c.Set("token_max_concurrency", token.MaxConcurrency)
+	c.Set("token_rpm_rate_limit", token.RPMRateLimit)
 	if !token.UnlimitedQuota {
 		c.Set("token_quota", token.RemainQuota)
 	}

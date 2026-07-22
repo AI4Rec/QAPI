@@ -17,10 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Crown, RefreshCw, Sparkles, Check } from 'lucide-react'
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { PaginationControls } from '@/components/pagination-controls'
 import {
   StatusBadge,
   dotColorMap,
@@ -107,10 +108,17 @@ export function SubscriptionPlansCard({
   const [allSubscriptions, setAllSubscriptions] = useState<
     UserSubscriptionRecord[]
   >([])
+  const [historyTotal, setHistoryTotal] = useState(0)
+  const [historyPageIndex, setHistoryPageIndex] = useState(0)
+  const [historyPageSize, setHistoryPageSize] = useState(20)
+  const [purchaseCounts, setPurchaseCounts] = useState<Record<string, number>>(
+    {}
+  )
   const [billingPreference, setBillingPreference] =
     useState('subscription_first')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const initializedRef = useRef(false)
 
   const [purchaseOpen, setPurchaseOpen] = useState(false)
   const [selectedPlan, setSelectedPlan] = useState<PlanRecord | null>(null)
@@ -135,34 +143,50 @@ export function SubscriptionPlansCard({
     }
   }, [])
 
-  const fetchSelfSubscription = useCallback(async () => {
-    try {
-      const res = await getSelfSubscriptionFull()
-      if (res.success && res.data) {
-        setBillingPreference(
-          res.data.billing_preference || 'subscription_first'
-        )
-        setActiveSubscriptions(res.data.subscriptions || [])
-        setAllSubscriptions(res.data.all_subscriptions || [])
+  const fetchSelfSubscription = useCallback(
+    async (pageIndex: number, pageSize: number) => {
+      try {
+        const res = await getSelfSubscriptionFull({
+          page: pageIndex + 1,
+          pageSize,
+        })
+        if (res.success && res.data) {
+          setBillingPreference(
+            res.data.billing_preference || 'subscription_first'
+          )
+          setActiveSubscriptions(res.data.subscriptions || [])
+          setAllSubscriptions(
+            res.data.history?.items || res.data.all_subscriptions || []
+          )
+          setHistoryTotal(res.data.history?.total || 0)
+          setPurchaseCounts(res.data.purchase_counts || {})
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
-  }, [])
+    },
+    []
+  )
 
   useEffect(() => {
     const init = async () => {
       setLoading(true)
-      await Promise.all([fetchPlans(), fetchSelfSubscription()])
+      await Promise.all([fetchPlans(), fetchSelfSubscription(0, 20)])
+      initializedRef.current = true
       setLoading(false)
     }
     init()
   }, [fetchPlans, fetchSelfSubscription])
 
+  useEffect(() => {
+    if (!initializedRef.current) return
+    void fetchSelfSubscription(historyPageIndex, historyPageSize)
+  }, [fetchSelfSubscription, historyPageIndex, historyPageSize])
+
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
-      await fetchSelfSubscription()
+      await fetchSelfSubscription(historyPageIndex, historyPageSize)
     } finally {
       setRefreshing(false)
     }
@@ -188,7 +212,7 @@ export function SubscriptionPlansCard({
   }
 
   const hasActive = activeSubscriptions.length > 0
-  const hasAny = allSubscriptions.length > 0
+  const hasAny = historyTotal > 0 || activeSubscriptions.length > 0
   const isAvailable = loading || plans.length > 0 || hasAny
   const disablePref = !hasActive
   const isSubPref =
@@ -199,13 +223,11 @@ export function SubscriptionPlansCard({
 
   const planPurchaseCountMap = useMemo(() => {
     const map = new Map<number, number>()
-    for (const sub of allSubscriptions) {
-      const planId = sub?.subscription?.plan_id
-      if (!planId) continue
-      map.set(planId, (map.get(planId) || 0) + 1)
+    for (const [planId, count] of Object.entries(purchaseCounts)) {
+      map.set(Number(planId), count)
     }
     return map
-  }, [allSubscriptions])
+  }, [purchaseCounts])
 
   useEffect(() => {
     onAvailabilityChange?.(isAvailable)
@@ -244,8 +266,8 @@ export function SubscriptionPlansCard({
         <CardContent className='space-y-4 p-3 sm:p-5'>
           <Skeleton className='h-20 w-full' />
           <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3'>
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className='h-48 w-full' />
+            {['first', 'second', 'third'].map((key) => (
+              <Skeleton key={key} className='h-48 w-full' />
             ))}
           </div>
         </CardContent>
@@ -290,12 +312,11 @@ export function SubscriptionPlansCard({
                     {t('No Active')}
                   </span>
                 )}
-                {allSubscriptions.length > activeSubscriptions.length && (
+                {historyTotal > activeSubscriptions.length && (
                   <>
                     <span className='text-muted-foreground/30'>·</span>
                     <span className='text-muted-foreground'>
-                      {allSubscriptions.length - activeSubscriptions.length}{' '}
-                      {t('expired')}
+                      {historyTotal - activeSubscriptions.length} {t('expired')}
                     </span>
                   </>
                 )}
@@ -411,6 +432,37 @@ export function SubscriptionPlansCard({
                   const isCancelled = subscription?.status === 'cancelled'
                   const isActive =
                     subscription?.status === 'active' && !isExpired
+                  const nextResetTime = subscription?.next_reset_time ?? 0
+                  let statusBadge = (
+                    <StatusBadge
+                      label={t('Expired')}
+                      variant='neutral'
+                      copyable={false}
+                    />
+                  )
+                  if (isActive) {
+                    statusBadge = (
+                      <StatusBadge
+                        label={t('Active')}
+                        variant='success'
+                        copyable={false}
+                      />
+                    )
+                  } else if (isCancelled) {
+                    statusBadge = (
+                      <StatusBadge
+                        label={t('Cancelled')}
+                        variant='neutral'
+                        copyable={false}
+                      />
+                    )
+                  }
+                  let endTimeLabel = t('Expired at')
+                  if (isActive) {
+                    endTimeLabel = t('Until')
+                  } else if (isCancelled) {
+                    endTimeLabel = t('Cancelled at')
+                  }
 
                   return (
                     <div
@@ -424,25 +476,7 @@ export function SubscriptionPlansCard({
                               ? `${planTitle} · ${t('Subscription')} #${subscription?.id}`
                               : `${t('Subscription')} #${subscription?.id}`}
                           </span>
-                          {isActive ? (
-                            <StatusBadge
-                              label={t('Active')}
-                              variant='success'
-                              copyable={false}
-                            />
-                          ) : isCancelled ? (
-                            <StatusBadge
-                              label={t('Cancelled')}
-                              variant='neutral'
-                              copyable={false}
-                            />
-                          ) : (
-                            <StatusBadge
-                              label={t('Expired')}
-                              variant='neutral'
-                              copyable={false}
-                            />
-                          )}
+                          {statusBadge}
                         </div>
                         {isActive && (
                           <span className='text-muted-foreground'>
@@ -453,21 +487,15 @@ export function SubscriptionPlansCard({
                         )}
                       </div>
                       <div className='text-muted-foreground mt-1.5'>
-                        {isActive
-                          ? t('Until')
-                          : isCancelled
-                            ? t('Cancelled at')
-                            : t('Expired at')}{' '}
+                        {endTimeLabel}{' '}
                         {new Date(
                           (subscription?.end_time || 0) * 1000
                         ).toLocaleString()}
                       </div>
-                      {isActive && (subscription?.next_reset_time ?? 0) > 0 && (
+                      {isActive && nextResetTime > 0 && (
                         <div className='text-muted-foreground mt-1'>
                           {t('Next reset')}:{' '}
-                          {new Date(
-                            subscription!.next_reset_time! * 1000
-                          ).toLocaleString()}
+                          {new Date(nextResetTime * 1000).toLocaleString()}
                         </div>
                       )}
                       <div className='text-muted-foreground mt-1'>
@@ -501,6 +529,20 @@ export function SubscriptionPlansCard({
                     </div>
                   )
                 })}
+              </div>
+              <div className='mt-3'>
+                <PaginationControls
+                  compact
+                  pageIndex={historyPageIndex}
+                  pageSize={historyPageSize}
+                  totalCount={historyTotal}
+                  pageCount={Math.ceil(historyTotal / historyPageSize)}
+                  onPageIndexChange={setHistoryPageIndex}
+                  onPageSizeChange={(pageSize) => {
+                    setHistoryPageSize(pageSize)
+                    setHistoryPageIndex(0)
+                  }}
+                />
               </div>
             </>
           )}
@@ -629,7 +671,7 @@ export function SubscriptionPlansCard({
         onOpenChange={(open) => {
           setPurchaseOpen(open)
           if (!open) {
-            fetchSelfSubscription()
+            void fetchSelfSubscription(historyPageIndex, historyPageSize)
           }
         }}
         plan={selectedPlan}

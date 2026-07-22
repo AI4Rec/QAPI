@@ -72,6 +72,14 @@ type ActivationQueueItem struct {
 	Target ActivationTarget `json:"target"`
 }
 
+type ActivationQueueSummary struct {
+	Targets        int64 `json:"targets"`
+	EnabledTargets int64 `json:"enabled_targets"`
+	PendingJobs    int64 `json:"pending_jobs"`
+	RunningJobs    int64 `json:"running_jobs"`
+	FailedJobs     int64 `json:"failed_jobs"`
+}
+
 func (target *ActivationTarget) BeforeCreate(_ *gorm.DB) error {
 	now := common.GetTimestamp()
 	if target.CreatedAt == 0 {
@@ -136,16 +144,49 @@ func ListActivationTargets() ([]*ActivationTarget, error) {
 	return targets, err
 }
 
-func MarkMissingActivationTargetsUnavailable(sourceType string, seenTargetKeys []string) error {
-	query := DB.Model(&ActivationTarget{}).Where("source_type = ?", sourceType)
-	if len(seenTargetKeys) > 0 {
-		query = query.Where("target_key NOT IN ?", seenTargetKeys)
+func ListActivationTargetsPage(pageInfo *common.PageInfo) ([]*ActivationTarget, int64, error) {
+	query := DB.Model(&ActivationTarget{})
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	return query.Updates(map[string]any{
-		"available":   false,
-		"last_status": "missing",
-		"updated_at":  common.GetTimestamp(),
-	}).Error
+	var targets []*ActivationTarget
+	err := query.Order("enabled desc, reset_at asc, id asc").
+		Limit(pageInfo.GetPageSize()).
+		Offset(pageInfo.GetStartIdx()).
+		Find(&targets).Error
+	return targets, total, err
+}
+
+func MarkMissingActivationTargetsUnavailable(sourceType string, seenTargetKeys []string) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		query := tx.Model(&ActivationTarget{}).Where("source_type = ?", sourceType)
+		if len(seenTargetKeys) > 0 {
+			query = query.Where("target_key NOT IN ?", seenTargetKeys)
+		}
+		var targetIDs []int64
+		if err := query.Pluck("id", &targetIDs).Error; err != nil {
+			return err
+		}
+		if len(targetIDs) == 0 {
+			return nil
+		}
+		now := common.GetTimestamp()
+		if err := tx.Model(&ActivationTarget{}).Where("id IN ?", targetIDs).Updates(map[string]any{
+			"available":   false,
+			"last_status": "missing",
+			"updated_at":  now,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&ActivationJob{}).
+			Where("target_id IN ? AND status = ?", targetIDs, ActivationJobStatusPending).
+			Updates(map[string]any{
+				"status":      ActivationJobStatusCancelled,
+				"finished_at": now,
+				"updated_at":  now,
+			}).Error
+	})
 }
 
 func SetActivationTargetEnabled(id int64, enabled bool) error {
@@ -237,6 +278,67 @@ func ListActivationQueue(limit int) ([]ActivationQueueItem, error) {
 		items = append(items, ActivationQueueItem{ActivationJob: job, Target: targetByID[job.TargetID]})
 	}
 	return items, nil
+}
+
+func ListActivationQueuePage(pageInfo *common.PageInfo) ([]ActivationQueueItem, int64, error) {
+	statuses := []ActivationJobStatus{
+		ActivationJobStatusPending,
+		ActivationJobStatusRunning,
+		ActivationJobStatusFailed,
+		ActivationJobStatusSucceeded,
+		ActivationJobStatusSkipped,
+	}
+	query := DB.Model(&ActivationJob{}).Where("status IN ?", statuses)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var jobs []ActivationJob
+	err := query.Order("CASE WHEN status IN ('pending','running') THEN 0 ELSE 1 END, scheduled_at asc, id desc").
+		Limit(pageInfo.GetPageSize()).
+		Offset(pageInfo.GetStartIdx()).
+		Find(&jobs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	targetIDs := make([]int64, 0, len(jobs))
+	for _, job := range jobs {
+		targetIDs = append(targetIDs, job.TargetID)
+	}
+	var targets []ActivationTarget
+	if len(targetIDs) > 0 {
+		if err := DB.Where("id IN ?", targetIDs).Find(&targets).Error; err != nil {
+			return nil, 0, err
+		}
+	}
+	targetByID := make(map[int64]ActivationTarget, len(targets))
+	for _, target := range targets {
+		targetByID[target.ID] = target
+	}
+	items := make([]ActivationQueueItem, 0, len(jobs))
+	for _, job := range jobs {
+		items = append(items, ActivationQueueItem{ActivationJob: job, Target: targetByID[job.TargetID]})
+	}
+	return items, total, nil
+}
+
+func GetActivationQueueSummary() (*ActivationQueueSummary, error) {
+	summary := &ActivationQueueSummary{}
+	if err := DB.Model(&ActivationTarget{}).Select(`
+		COUNT(*) AS targets,
+		COALESCE(SUM(CASE WHEN enabled = ? THEN 1 ELSE 0 END), 0) AS enabled_targets
+	`, true).Scan(summary).Error; err != nil {
+		return nil, err
+	}
+	if err := DB.Model(&ActivationJob{}).Select(`
+		COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS pending_jobs,
+		COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS running_jobs,
+		COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS failed_jobs
+	`, ActivationJobStatusPending, ActivationJobStatusRunning, ActivationJobStatusFailed).
+		Scan(summary).Error; err != nil {
+		return nil, err
+	}
+	return summary, nil
 }
 
 func ClaimNextDueActivationJob(now int64) (*ActivationJob, bool, error) {

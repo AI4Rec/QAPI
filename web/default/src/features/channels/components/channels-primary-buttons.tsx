@@ -31,6 +31,8 @@ import {
   ArrowUpFromLine,
   PackagePlus,
   LogIn,
+  Database,
+  Activity,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -41,13 +43,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import {
   Tooltip,
   TooltipContent,
@@ -67,11 +68,18 @@ import {
   handleTestAllChannels,
   handleUpdateAllBalances,
 } from '../lib'
+import type { ChannelWorkspaceView } from '../types'
 import { useChannels } from './channels-provider'
+import { AccountInspectorDialog } from './dialogs/account-inspector-dialog'
 import { CPAImportDialog } from './dialogs/cpa-import-dialog'
 import { CPAOfficialLoginDialog } from './dialogs/cpa-official-login-dialog'
+import { Sub2APIImportDialog } from './dialogs/sub2api-import-dialog'
 
-export function ChannelsPrimaryButtons() {
+type ChannelsPrimaryButtonsProps = {
+  view: ChannelWorkspaceView
+}
+
+export function ChannelsPrimaryButtons(props: ChannelsPrimaryButtonsProps) {
   const { t } = useTranslation()
   const {
     setOpen,
@@ -89,6 +97,8 @@ export function ChannelsPrimaryButtons() {
   const [showConsistencyDialog, setShowConsistencyDialog] = useState(false)
   const [isRepairingConsistency, setIsRepairingConsistency] = useState(false)
   const [showCPAImportDialog, setShowCPAImportDialog] = useState(false)
+  const [showSub2APIImportDialog, setShowSub2APIImportDialog] = useState(false)
+  const [showAccountInspector, setShowAccountInspector] = useState(false)
   const [showCPAOfficialLoginDialog, setShowCPAOfficialLoginDialog] =
     useState(false)
   const currentUser = useAuthStore((s) => s.auth.user)
@@ -115,204 +125,196 @@ export function ChannelsPrimaryButtons() {
   return (
     <>
       <div className='flex items-center gap-2'>
-        {/* Desktop: Toggle switches visible */}
-        <div className='hidden items-center gap-2 rounded-md border px-3 py-1.5 sm:flex'>
-          <ListChecks className='text-muted-foreground h-4 w-4' />
-          <Label
-            htmlFor='channel-batch-mode'
-            className='cursor-pointer text-sm'
+        {(props.view === 'cpa' || props.view === 'sub2api') && (
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => setShowAccountInspector(true)}
           >
-            {t('Batch Operations')}
-          </Label>
-          <Switch
-            id='channel-batch-mode'
-            checked={batchMode}
-            onCheckedChange={handleBatchModeToggle}
-          />
-        </div>
-
-        <div className='hidden items-center gap-2 rounded-md border px-3 py-1.5 sm:flex'>
-          <Tags className='text-muted-foreground h-4 w-4' />
-          <Label htmlFor='tag-mode' className='cursor-pointer text-sm'>
-            {t('Tag Mode')}
-          </Label>
-          <Switch
-            id='tag-mode'
-            checked={enableTagMode}
-            onCheckedChange={handleTagModeToggle}
-          />
-        </div>
-
-        <div className='hidden items-center gap-2 rounded-md border px-3 py-1.5 sm:flex'>
-          <SortAsc className='text-muted-foreground h-4 w-4' />
-          <Label htmlFor='id-sort' className='cursor-pointer text-sm'>
-            {t('Sort by ID')}
-          </Label>
-          <Switch
-            id='id-sort'
-            checked={idSort}
-            onCheckedChange={handleIdSortToggle}
-          />
-        </div>
-
-        {/* Create Channel */}
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={() => setShowCPAImportDialog(true)}
-          disabled={!canEditSensitive}
-        >
-          <PackagePlus className='h-4 w-4' />
-          <span className='max-sm:hidden'>CPA 上货</span>
-        </Button>
-
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={() => setShowCPAOfficialLoginDialog(true)}
-          disabled={!canEditSensitive}
-        >
-          <LogIn className='h-4 w-4' />
-          <span className='max-sm:hidden'>{t('Official Login')}</span>
-        </Button>
-
-        <ActivationQueueWidget />
-
-        <Tooltip>
-          <TooltipTrigger render={<span className='inline-flex' />}>
+            <Activity data-icon='inline-start' />
+            <span className='max-sm:hidden'>{t('Account inspector')}</span>
+          </Button>
+        )}
+        {props.view === 'channels' && (
+          <>
             <Button
-              onClick={() => {
-                if (!canEditSensitive) return
-                setCurrentRow(null)
-                setOpen('create-channel')
-              }}
+              variant={batchMode ? 'secondary' : 'outline'}
               size='sm'
-              disabled={!canEditSensitive}
+              onClick={() => handleBatchModeToggle(!batchMode)}
+              aria-label={t('Batch Operations')}
+              aria-pressed={batchMode}
             >
-              <Plus className='h-4 w-4' />
-              <span className='max-sm:hidden'>{t('Create Channel')}</span>
-              <span className='sm:hidden'>{t('Create')}</span>
+              <ListChecks data-icon='inline-start' />
+              <span className='max-sm:hidden'>{t('Batch Operations')}</span>
             </Button>
-          </TooltipTrigger>
-          {!canEditSensitive && (
-            <TooltipContent>
-              {t('No permission to perform this action')}
-            </TooltipContent>
-          )}
-        </Tooltip>
 
-        {/* More Actions */}
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant='outline' size='sm' />}>
-            <MoreHorizontal className='h-4 w-4' />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align='end' className='w-56'>
-            {/* Mobile-only: toggle switches */}
-            <DropdownMenuCheckboxItem
-              className='sm:hidden'
-              checked={batchMode}
-              onCheckedChange={handleBatchModeToggle}
-            >
-              <ListChecks className='mr-2 h-4 w-4' />
-              {t('Batch Operations')}
-            </DropdownMenuCheckboxItem>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size='sm'
+                    disabled={!canEditSensitive}
+                    aria-label={t('Create Channel')}
+                    onClick={() => {
+                      if (!canEditSensitive) return
+                      setCurrentRow(null)
+                      setOpen('create-channel')
+                    }}
+                  />
+                }
+              >
+                <Plus data-icon='inline-start' />
+                <span className='max-sm:hidden'>{t('Create Channel')}</span>
+                <span className='sm:hidden'>{t('Create')}</span>
+              </TooltipTrigger>
+              {!canEditSensitive && (
+                <TooltipContent>
+                  {t('No permission to perform this action')}
+                </TooltipContent>
+              )}
+            </Tooltip>
 
-            <DropdownMenuCheckboxItem
-              className='sm:hidden'
-              checked={enableTagMode}
-              onCheckedChange={handleTagModeToggle}
-            >
-              <Tags className='mr-2 h-4 w-4' />
-              {t('Tag Mode')}
-            </DropdownMenuCheckboxItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant='outline'
+                    size='icon-sm'
+                    aria-label={t('More')}
+                  />
+                }
+              >
+                <MoreHorizontal />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end' className='w-64'>
+                <DropdownMenuGroup>
+                  <DropdownMenuCheckboxItem
+                    checked={enableTagMode}
+                    onCheckedChange={handleTagModeToggle}
+                  >
+                    <Tags />
+                    {t('Tag Mode')}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={idSort}
+                    onCheckedChange={handleIdSortToggle}
+                  >
+                    <SortAsc />
+                    {t('Sort by ID')}
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuGroup>
 
-            <DropdownMenuCheckboxItem
-              className='sm:hidden'
-              checked={idSort}
-              onCheckedChange={handleIdSortToggle}
-            >
-              <SortAsc className='mr-2 h-4 w-4' />
-              {t('Sort by ID')}
-            </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
 
-            <DropdownMenuSeparator className='sm:hidden' />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    onClick={() => handleTestAllChannels(queryClient)}
+                  >
+                    {t('Test All Channels')}
+                    <DropdownMenuShortcut>
+                      <TestTube />
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleUpdateAllBalances(queryClient)}
+                  >
+                    {t('Update All Balances')}
+                    <DropdownMenuShortcut>
+                      <DollarSign />
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
 
-            <DropdownMenuItem
-              onClick={() => {
-                handleTestAllChannels(queryClient)
-              }}
-            >
-              {t('Test All Channels')}
-              <DropdownMenuShortcut>
-                <TestTube className='h-4 w-4' />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
+                <DropdownMenuSeparator />
 
-            <DropdownMenuItem
-              onClick={() => {
-                handleUpdateAllBalances(queryClient)
-              }}
-            >
-              {t('Update All Balances')}
-              <DropdownMenuShortcut>
-                <DollarSign className='h-4 w-4' />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    onClick={() => upstream.detectAllUpdates()}
+                    disabled={upstream.detectAllLoading}
+                  >
+                    {t('Detect All Upstream Updates')}
+                    <DropdownMenuShortcut>
+                      <RefreshCw />
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => upstream.applyAllUpdates()}
+                    disabled={upstream.applyAllLoading}
+                  >
+                    {t('Apply All Upstream Updates')}
+                    <DropdownMenuShortcut>
+                      <ArrowUpFromLine />
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      setShowConsistencyDialog(true)
+                    }}
+                  >
+                    {t('Repair Channel Consistency')}
+                    <DropdownMenuShortcut>
+                      <Settings2 />
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
 
-            <DropdownMenuSeparator />
+                <DropdownMenuSeparator />
 
-            <DropdownMenuItem
-              onClick={() => upstream.detectAllUpdates()}
-              disabled={upstream.detectAllLoading}
-            >
-              {t('Detect All Upstream Updates')}
-              <DropdownMenuShortcut>
-                <RefreshCw className='h-4 w-4' />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      if (!canEditSensitive) return
+                      setShowDeleteDialog(true)
+                    }}
+                    disabled={!canEditSensitive}
+                    className='text-destructive focus:text-destructive'
+                  >
+                    {t('Delete All Disabled')}
+                    <DropdownMenuShortcut>
+                      <Trash2 />
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
 
-            <DropdownMenuItem
-              onClick={() => upstream.applyAllUpdates()}
-              disabled={upstream.applyAllLoading}
-            >
-              {t('Apply All Upstream Updates')}
-              <DropdownMenuShortcut>
-                <ArrowUpFromLine className='h-4 w-4' />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
+        {props.view === 'sub2api' && (
+          <Button
+            size='sm'
+            onClick={() => setShowSub2APIImportDialog(true)}
+            disabled={!canEditSensitive}
+          >
+            <Database data-icon='inline-start' />
+            {t('Sub2API stock upload')}
+          </Button>
+        )}
 
-            <DropdownMenuSeparator />
-
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault()
-                setShowConsistencyDialog(true)
-              }}
-            >
-              {t('Repair Channel Consistency')}
-              <DropdownMenuShortcut>
-                <Settings2 className='h-4 w-4' />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-
-            <DropdownMenuSeparator />
-
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault()
-                if (!canEditSensitive) return
-                setShowDeleteDialog(true)
-              }}
+        {props.view === 'cpa' && (
+          <>
+            <Button
+              size='sm'
+              onClick={() => setShowCPAImportDialog(true)}
               disabled={!canEditSensitive}
-              className='text-destructive focus:text-destructive'
             >
-              {t('Delete All Disabled')}
-              <DropdownMenuShortcut>
-                <Trash2 className='h-4 w-4' />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <PackagePlus data-icon='inline-start' />
+              <span className='max-sm:hidden'>{t('CPA stock upload')}</span>
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setShowCPAOfficialLoginDialog(true)}
+              disabled={!canEditSensitive}
+            >
+              <LogIn data-icon='inline-start' />
+              <span className='max-sm:hidden'>{t('Official Login')}</span>
+            </Button>
+            <ActivationQueueWidget />
+          </>
+        )}
       </div>
 
       <ConfirmDialog
@@ -341,6 +343,17 @@ export function ChannelsPrimaryButtons() {
       <CPAOfficialLoginDialog
         open={showCPAOfficialLoginDialog}
         onOpenChange={setShowCPAOfficialLoginDialog}
+      />
+
+      <Sub2APIImportDialog
+        open={showSub2APIImportDialog}
+        onOpenChange={setShowSub2APIImportDialog}
+      />
+
+      <AccountInspectorDialog
+        open={showAccountInspector}
+        onOpenChange={setShowAccountInspector}
+        initialProvider={props.view === 'cpa' ? 'cpa' : 'sub2api'}
       />
 
       <ConfirmDialog

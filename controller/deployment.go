@@ -694,13 +694,15 @@ func GetDeploymentLogs(c *gin.Context) {
 		}
 	}
 
-	rawLogs, err := client.GetContainerLogsRaw(deploymentID, containerID, opts)
+	rawLogs, nextCursor, err := client.GetContainerLogsPageRaw(deploymentID, containerID, opts)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
-	common.ApiSuccess(c, rawLogs)
+	common.ApiSuccess(c, gin.H{
+		"content": rawLogs, "next_cursor": nextCursor, "has_more": nextCursor != "",
+	})
 }
 
 func ListDeploymentContainers(c *gin.Context) {

@@ -22,12 +22,16 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { DataTableRowActionMenu, StaticDataTable } from '@/components/data-table'
+import {
+  DataTableRowActionMenu,
+  StaticDataTable,
+} from '@/components/data-table'
 import {
   sideDrawerContentClassName,
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { PaginationControls } from '@/components/pagination-controls'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
 import { Button } from '@/components/ui/button'
@@ -113,6 +117,9 @@ export function UserSubscriptionsDialog(props: Props) {
   const [creating, setCreating] = useState(false)
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [subs, setSubs] = useState<UserSubscriptionRecord[]>([])
+  const [total, setTotal] = useState(0)
+  const [pageIndex, setPageIndex] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
   const [selectedPlanId, setSelectedPlanId] = useState<string>('')
   const [resetting, setResetting] = useState(false)
   const [advanceResetTime, setAdvanceResetTime] = useState(true)
@@ -139,21 +146,33 @@ export function UserSubscriptionsDialog(props: Props) {
     try {
       const [plansRes, subsRes] = await Promise.all([
         getAdminPlans(),
-        getUserSubscriptions(props.user.id),
+        getUserSubscriptions(props.user.id, {
+          page: pageIndex + 1,
+          pageSize,
+        }),
       ])
       if (plansRes.success) setPlans(plansRes.data || [])
-      if (subsRes.success) setSubs(subsRes.data || [])
+      if (subsRes.success) {
+        setSubs(subsRes.data?.items || [])
+        setTotal(subsRes.data?.total || 0)
+      }
     } catch {
       toast.error(t('Loading failed'))
     } finally {
       setLoading(false)
     }
-  }, [props.user?.id, t])
+  }, [pageIndex, pageSize, props.user?.id, t])
 
   useEffect(() => {
     if (props.open && props.user?.id) {
       setSelectedPlanId('')
-      loadData()
+      setPageIndex(0)
+    }
+  }, [props.open, props.user?.id])
+
+  useEffect(() => {
+    if (props.open && props.user?.id) {
+      void loadData()
     }
   }, [props.open, props.user?.id, loadData])
 
@@ -194,7 +213,11 @@ export function UserSubscriptionsDialog(props: Props) {
         const res = await deleteUserSubscription(confirmAction.subId)
         if (res.success) {
           toast.success(t('Deleted'))
-          await loadData()
+          if (subs.length === 1 && pageIndex > 0) {
+            setPageIndex(pageIndex - 1)
+          } else {
+            await loadData()
+          }
           props.onSuccess?.()
         }
       }
@@ -413,6 +436,19 @@ export function UserSubscriptionsDialog(props: Props) {
                 },
               ]}
             />
+            {total > 0 && (
+              <PaginationControls
+                pageIndex={pageIndex}
+                pageSize={pageSize}
+                totalCount={total}
+                pageCount={Math.ceil(total / pageSize)}
+                onPageIndexChange={setPageIndex}
+                onPageSizeChange={(nextPageSize) => {
+                  setPageSize(nextPageSize)
+                  setPageIndex(0)
+                }}
+              />
+            )}
           </div>
         </SheetContent>
       </Sheet>

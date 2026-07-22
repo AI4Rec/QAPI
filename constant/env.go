@@ -18,6 +18,14 @@ var GenerateDefaultToken bool
 var ErrorLogEnabled bool
 var TaskQueryLimit int
 var TaskTimeoutMinutes int
+var ResponsesFastPathEnabled bool
+var ResponsesSpoolThresholdMB int
+var ResponsesSmallMaxConcurrency int
+var ResponsesMediumMaxConcurrency int
+var ResponsesLargeMaxConcurrency int
+var ResponsesHugeMaxConcurrency int
+var ResponsesTotalMaxConcurrency int
+var ResponsesAdmissionWaitMS int
 
 // temporary variable for sora patch, will be removed in future
 var TaskPricePatches []string

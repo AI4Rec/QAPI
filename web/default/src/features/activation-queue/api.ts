@@ -1,11 +1,50 @@
 import { api } from '@/lib/api'
 
-import type { ActivationActionResponse, ActivationQueueResponse } from './types'
+import type {
+  ActivationActionResponse,
+  ActivationQueueJobsResponse,
+  ActivationQueueResponse,
+  ActivationQueueSummaryResponse,
+  ActivationQueueTargetsResponse,
+} from './types'
 
 export async function getActivationQueue(): Promise<ActivationQueueResponse> {
   const response = await api.get<ActivationQueueResponse>(
     '/api/activation-queue/overview',
     { params: { limit: 120 } }
+  )
+  return response.data
+}
+
+export async function getActivationQueueSummary(): Promise<ActivationQueueSummaryResponse> {
+  const response = await api.get<ActivationQueueSummaryResponse>(
+    '/api/activation-queue/summary'
+  )
+  return response.data
+}
+
+export async function listActivationQueueJobs(params: {
+  page?: number
+  pageSize?: number
+}): Promise<ActivationQueueJobsResponse> {
+  const response = await api.get<ActivationQueueJobsResponse>(
+    '/api/activation-queue/jobs',
+    {
+      params: { p: params.page ?? 1, page_size: params.pageSize ?? 10 },
+    }
+  )
+  return response.data
+}
+
+export async function listActivationQueueTargets(params: {
+  page?: number
+  pageSize?: number
+}): Promise<ActivationQueueTargetsResponse> {
+  const response = await api.get<ActivationQueueTargetsResponse>(
+    '/api/activation-queue/targets',
+    {
+      params: { p: params.page ?? 1, page_size: params.pageSize ?? 20 },
+    }
   )
   return response.data
 }

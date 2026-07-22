@@ -1,0 +1,33 @@
+[Unit]
+Description=Sub2API v0.1.162 account pool
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=sub2api
+Group=sub2api
+WorkingDirectory=/opt/sub2api
+EnvironmentFile=/etc/sub2api/sub2api.env
+Environment=GOMEMLIMIT=500MiB
+ExecStart=/opt/sub2api/current/sub2api
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sub2api
+LimitNOFILE=65535
+CPUAccounting=yes
+CPUWeight=2500
+CPUQuota=80%
+MemoryAccounting=yes
+MemoryHigh=450M
+MemoryMax=650M
+MemorySwapMax=256M
+TasksMax=256
+TimeoutStopSec=20s
+
+[Install]
+WantedBy=multi-user.target

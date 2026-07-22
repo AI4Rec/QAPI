@@ -15,10 +15,13 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
+
+const responsesRequestPayloadReleasedKey = "responses_request_payload_released"
 
 func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
@@ -55,29 +58,52 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		)
 	}
 
-	request, err := common.DeepCopy(responsesReq)
-	if err != nil {
-		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
-	}
-
-	err = helper.ModelMappedHelper(c, info, request)
-	if err != nil {
-		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
-	}
-
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
 	adaptor.Init(info)
 	var requestBody io.Reader
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	configuredPassThrough := model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled
+	fastPassThrough := canFastPassThroughResponses(c, info, responsesReq)
+	if configuredPassThrough || fastPassThrough {
+		if err := helper.ModelMappedHelper(c, info, nil); err != nil {
+			return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+		}
+		if fastPassThrough && len(info.ParamOverride) > 0 {
+			if err := relaycommon.ApplyHeaderOnlyParamOverrideWithRelayInfo(info); err != nil {
+				return newAPIErrorFromParamOverride(err)
+			}
+		}
+		if responsesReq.Reasoning != nil {
+			info.ReasoningEffort = responsesReq.Reasoning.Effort
+		}
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 		}
+		info.UpstreamRequestBodySize = storage.Size()
 		requestBody = common.ReaderOnly(storage)
+		if _, ok := info.Request.(*dto.OpenAIResponsesRequest); ok {
+			releaseResponsesRequestPayload(responsesReq)
+			c.Set(responsesRequestPayloadReleasedKey, true)
+		}
 	} else {
+		if c.GetBool(responsesRequestPayloadReleasedKey) {
+			responsesReq = &dto.OpenAIResponsesRequest{}
+			if err := common.UnmarshalBodyReusable(c, responsesReq); err != nil {
+				return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+			}
+			info.Request = responsesReq
+			c.Set(responsesRequestPayloadReleasedKey, false)
+		}
+		request, err := common.DeepCopy(responsesReq)
+		if err != nil {
+			return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
+		if err := helper.ModelMappedHelper(c, info, request); err != nil {
+			return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+		}
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -163,4 +189,53 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		service.PostTextConsumeQuota(c, info, usageDto, nil)
 	}
 	return nil
+}
+
+func canFastPassThroughResponses(c *gin.Context, info *relaycommon.RelayInfo, request *dto.OpenAIResponsesRequest) bool {
+	if !appconstant.ResponsesFastPathEnabled || info.RelayMode != relayconstant.RelayModeResponses {
+		return false
+	}
+	if info.ApiType != appconstant.APITypeOpenAI || info.ChannelType != appconstant.ChannelTypeOpenAI {
+		return false
+	}
+	if !relaycommon.IsHeaderOnlyParamOverride(info.ParamOverride) {
+		return false
+	}
+	modelMapping := strings.TrimSpace(c.GetString("model_mapping"))
+	if modelMapping != "" && modelMapping != "{}" {
+		return false
+	}
+	if effort, _ := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(request.Model); effort != "" {
+		return false
+	}
+	settings := info.ChannelOtherSettings
+	if (!settings.AllowServiceTier && request.ServiceTier != "") ||
+		(!settings.AllowInferenceGeo && len(request.InferenceGeo) > 0) ||
+		(!settings.AllowSpeed && len(request.Speed) > 0) ||
+		(settings.DisableStore && len(request.Store) > 0) ||
+		(!settings.AllowSafetyIdentifier && len(request.SafetyIdentifier) > 0) ||
+		(!settings.AllowIncludeObfuscation && request.StreamOptions != nil && request.StreamOptions.IncludeObfuscation != nil) {
+		return false
+	}
+	return true
+}
+
+func releaseResponsesRequestPayload(request *dto.OpenAIResponsesRequest) {
+	request.Input = nil
+	request.Include = nil
+	request.Conversation = nil
+	request.ContextManagement = nil
+	request.Instructions = nil
+	request.Metadata = nil
+	request.ParallelToolCalls = nil
+	request.PromptCacheKey = nil
+	request.PromptCacheRetention = nil
+	request.Text = nil
+	request.ToolChoice = nil
+	request.Tools = nil
+	request.Truncation = nil
+	request.User = nil
+	request.Prompt = nil
+	request.EnableThinking = nil
+	request.Preset = nil
 }

@@ -530,6 +530,14 @@ export const STATIC_I18N_KEYS = [
   'The model that was requested',
   'The upstream channel that served the requests',
 
+  // Manually delivered sales keys
+  'Sales keys',
+  'Transactions',
+  'Business overview',
+  'Delivered',
+  '{{count}} concurrent',
+  '{{count}} RPM',
+
   // Misc
   'Cancel',
   'Status',

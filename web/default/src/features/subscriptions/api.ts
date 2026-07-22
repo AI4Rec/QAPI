@@ -30,6 +30,7 @@ import type {
   SubscriptionPayResponse,
   SubscriptionPayRequest,
   SelfSubscriptionData,
+  UserSubscriptionPage,
 } from './types'
 
 // ============================================================================
@@ -71,10 +72,14 @@ export async function patchPlanStatus(
 // ============================================================================
 
 export async function getUserSubscriptions(
-  userId: number
-): Promise<ApiResponse<UserSubscriptionRecord[]>> {
+  userId: number,
+  params?: { page?: number; pageSize?: number }
+): Promise<ApiResponse<UserSubscriptionPage>> {
   const res = await api.get(
-    `/api/subscription/admin/users/${userId}/subscriptions`
+    `/api/subscription/admin/users/${userId}/subscriptions`,
+    {
+      params: { p: params?.page ?? 1, page_size: params?.pageSize ?? 20 },
+    }
   )
   return res.data
 }
@@ -212,10 +217,13 @@ export async function getSelfSubscriptions(): Promise<
   return res.data
 }
 
-export async function getSelfSubscriptionFull(): Promise<
-  ApiResponse<SelfSubscriptionData>
-> {
-  const res = await api.get('/api/subscription/self')
+export async function getSelfSubscriptionFull(params?: {
+  page?: number
+  pageSize?: number
+}): Promise<ApiResponse<SelfSubscriptionData>> {
+  const res = await api.get('/api/subscription/self', {
+    params: { p: params?.page ?? 1, page_size: params?.pageSize ?? 20 },
+  })
   return res.data
 }
 

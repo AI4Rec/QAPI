@@ -1,0 +1,10 @@
+[Unit]
+Description=QAPI storage retention cleanup
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/qapi-storage-retention
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30m

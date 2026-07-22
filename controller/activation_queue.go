@@ -33,6 +33,39 @@ func GetActivationQueueOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": overview})
 }
 
+func GetActivationQueueSummary(c *gin.Context) {
+	summary, err := service.GetActivationQueueSummary()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": summary})
+}
+
+func ListActivationQueueJobs(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	items, total, err := service.ListActivationQueueJobs(pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(items)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func ListActivationQueueTargets(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	items, total, err := service.ListActivationQueueTargets(pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(items)
+	common.ApiSuccess(c, pageInfo)
+}
+
 func ReconcileActivationQueue(c *gin.Context) {
 	summary, err := service.ReconcileActivationQueue(c.Request.Context())
 	message := ""

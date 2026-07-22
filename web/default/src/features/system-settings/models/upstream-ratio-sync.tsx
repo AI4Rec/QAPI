@@ -18,7 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckSquare, RefreshCcw } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -92,8 +98,9 @@ function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
 
 function getBillingCategory(ratioType: string): 'price' | 'ratio' | 'tiered' {
   if (ratioType === 'model_price') return 'price'
-  if (ratioType === 'billing_mode' || ratioType === 'billing_expr')
+  if (ratioType === 'billing_mode' || ratioType === 'billing_expr') {
     return 'tiered'
+  }
   return 'ratio'
 }
 
@@ -154,17 +161,50 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const [resolutions, setResolutions] = useState<ResolutionsMap>({})
   const [conflictItems, setConflictItems] = useState<ConflictItem[]>([])
   const [confirmLoading, setConfirmLoading] = useState(false)
+  const [channelPageIndex, setChannelPageIndex] = useState(0)
+  const [channelPageSize, setChannelPageSize] = useState(20)
+  const [channelSearch, setChannelSearch] = useState('')
+  const [knownChannels, setKnownChannels] = useState<
+    Record<number, UpstreamChannel>
+  >({})
+  const deferredChannelSearch = useDeferredValue(channelSearch)
 
-  const { data: channelsData } = useQuery({
-    queryKey: ['upstream-channels'],
-    queryFn: getUpstreamChannels,
+  const { data: channelsData, isFetching: isFetchingChannels } = useQuery({
+    queryKey: [
+      'upstream-channels',
+      channelPageIndex,
+      channelPageSize,
+      deferredChannelSearch,
+    ],
+    queryFn: () =>
+      getUpstreamChannels({
+        page: channelPageIndex + 1,
+        pageSize: channelPageSize,
+        keyword: deferredChannelSearch.trim(),
+      }),
     enabled: channelDialogOpen,
+    placeholderData: (previous) => previous,
   })
 
   // Memoize the channels list so the effect below only re-runs when the query
   // data actually changes, instead of on every render (the `|| []` fallback
   // would otherwise produce a new array reference each render).
-  const channels = useMemo(() => channelsData?.data ?? [], [channelsData?.data])
+  const channels = useMemo(
+    () => [
+      ...(channelsData?.data?.presets ?? []),
+      ...(channelsData?.data?.items ?? []),
+    ],
+    [channelsData?.data?.items, channelsData?.data?.presets]
+  )
+
+  useEffect(() => {
+    if (channels.length === 0) return
+    setKnownChannels((previous) => {
+      const next = { ...previous }
+      for (const channel of channels) next[channel.id] = channel
+      return next
+    })
+  }, [channels])
 
   useEffect(() => {
     if (channels.length === 0) return
@@ -250,9 +290,10 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   }
 
   const handleConfirmChannelSelection = (selectedIds: number[]) => {
-    const selectedChannels = channels.filter((ch) =>
-      selectedIds.includes(ch.id)
-    )
+    const selectedChannels = selectedIds.flatMap((id) => {
+      const channel = knownChannels[id]
+      return channel ? [channel] : []
+    })
 
     if (selectedChannels.length === 0) {
       toast.warning(t('Please select at least one channel'))
@@ -292,7 +333,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       const category = getBillingCategory(finalType)
 
       setResolutions((prev) => {
-        const newModelRes = { ...(prev[model] || {}) }
+        const newModelRes = { ...prev[model] }
 
         // Clear conflicting categories
         Object.keys(newModelRes).forEach((rt) => {
@@ -370,8 +411,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       currentRatios.ImageRatio[model] !== undefined ||
       currentRatios.AudioRatio[model] !== undefined ||
       currentRatios.AudioCompletionRatio[model] !== undefined
-    )
+    ) {
       return 'ratio'
+    }
     return null
   }
 
@@ -553,6 +595,19 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         open={channelDialogOpen}
         onOpenChange={setChannelDialogOpen}
         channels={channels}
+        totalCount={channelsData?.data?.total ?? 0}
+        pageIndex={channelPageIndex}
+        pageSize={channelPageSize}
+        isFetching={isFetchingChannels}
+        onPageIndexChange={setChannelPageIndex}
+        onPageSizeChange={(pageSize) => {
+          setChannelPageSize(pageSize)
+          setChannelPageIndex(0)
+        }}
+        onSearchChange={(value) => {
+          setChannelSearch(value)
+          setChannelPageIndex(0)
+        }}
         selectedChannelIds={selectedChannelIds}
         onSelectedChannelIdsChange={setSelectedChannelIds}
         channelEndpoints={channelEndpoints}

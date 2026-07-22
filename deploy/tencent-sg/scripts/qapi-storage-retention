@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LOCK_FILE=/run/qapi-storage-retention.lock
+APP_ROOT=/opt/new-api
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || exit 0
+
+before=$(df --output=used -B1 / | tail -n 1)
+
+mapfile -t root_backups < <(
+  find "$APP_ROOT" -maxdepth 1 -type f \
+    \( -name 'new-api.backup*' -o -name 'new-api.before*' -o -name 'new-api.rollback*' \) \
+    -printf '%T@\t%p\n' | sort -n | cut -f2-
+)
+root_count=${#root_backups[@]}
+if (( root_count > 3 )); then
+  for ((i = 0; i < root_count - 3; i++)); do
+    path=${root_backups[$i]}
+    [[ "$path" == "$APP_ROOT/new-api.rollback-before-invite-only-20260717" ]] && continue
+    rm -f -- "$path"
+  done
+fi
+
+mapfile -t backup_entries < <(
+  find "$APP_ROOT/backups" -mindepth 1 -maxdepth 1 -printf '%T@\t%p\n' 2>/dev/null | sort -n | cut -f2-
+)
+backup_count=${#backup_entries[@]}
+if (( backup_count > 5 )); then
+  for ((i = 0; i < backup_count - 5; i++)); do
+    path=${backup_entries[$i]}
+    case "$path" in
+      "$APP_ROOT/backups/20260717-132106-invite-only-registration"|\
+      "$APP_ROOT/backups/token-sales-v2-20260718-180645")
+        continue
+        ;;
+    esac
+    find "$path" -type f -name 'new-api*' -perm /111 -size +50M -delete 2>/dev/null || true
+    find "$path" -depth -type d -empty -delete 2>/dev/null || true
+  done
+fi
+
+mapfile -t releases < <(
+  find "$APP_ROOT/releases" -mindepth 1 -maxdepth 1 -printf '%T@\t%p\n' 2>/dev/null | sort -n | cut -f2-
+)
+release_count=${#releases[@]}
+if (( release_count > 2 )); then
+  for ((i = 0; i < release_count - 2; i++)); do
+    rm -rf -- "${releases[$i]}"
+  done
+fi
+
+find "$APP_ROOT/logs" -type f -name 'oneapi-*.log' -mtime +14 -delete 2>/dev/null || true
+GOCACHE=/root/.cache/go-build go clean -cache 2>/dev/null || true
+apt-get clean
+journalctl --vacuum-size=256M >/dev/null
+
+after=$(df --output=used -B1 / | tail -n 1)
+used_percent=$(df --output=pcent / | tail -n 1 | tr -dc '0-9')
+freed=$((before - after))
+logger -t qapi-storage "retention complete freed_bytes=$freed disk_used_percent=$used_percent"
+
+if (( used_percent >= 90 )); then
+  logger -p daemon.crit -t qapi-storage "disk usage critical percent=$used_percent"
+elif (( used_percent >= 85 )); then
+  logger -p daemon.err -t qapi-storage "disk usage high percent=$used_percent"
+elif (( used_percent >= 75 )); then
+  logger -p daemon.warning -t qapi-storage "disk usage warning percent=$used_percent"
+fi

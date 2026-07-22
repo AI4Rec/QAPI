@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 
+import { RuntimeProtectionPanel } from './components/runtime-protection-panel'
 import { SystemInstancesPanel } from './components/system-instances-panel'
 import { SystemTasksPanel } from './components/system-tasks-panel'
 
@@ -38,7 +39,8 @@ export function SystemInfo() {
         </span>
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='space-y-4'>
+        <div className='flex flex-col gap-4'>
+          <RuntimeProtectionPanel />
           <SystemInstancesPanel />
           <SystemTasksPanel />
         </div>

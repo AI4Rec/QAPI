@@ -1,6 +1,6 @@
 export type OperationalAsset = {
   id: number
-  source_type: 'cpa_account' | 'channel'
+  source_type: 'cpa_account' | 'sub2api_account' | 'channel'
   source_key: string
   source_id: number
   display_name: string
@@ -11,6 +11,7 @@ export type OperationalAsset = {
   cost_note: string
   archived_at: number
   archive_reason: string
+  cumulative_output_usd: number | null
   last_seen_at: number
 }
 
@@ -44,8 +45,28 @@ export type OperationalCostOverviewResponse = {
   }
 }
 
+export type OperationalCostSummaryResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    summary: OperationalCostSummary
+    currency: string
+  }
+}
+
+export type OperationalCostPageResponse<T> = {
+  success: boolean
+  message?: string
+  data?: {
+    page: number
+    page_size: number
+    total: number
+    items: T[]
+  }
+}
+
 export type AssetCostPayload = {
-  source_type: 'cpa_account' | 'channel'
+  source_type: 'cpa_account' | 'sub2api_account' | 'channel'
   source_key: string
   source_id?: number
   source_ref?: string

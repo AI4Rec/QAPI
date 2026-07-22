@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import datetime as dt
+import hashlib
 import json
 import math
 import os
@@ -220,6 +221,22 @@ class MonitorDatabase:
                 usage_event_id INTEGER NOT NULL UNIQUE,
                 joined_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS account_output_events (
+                usage_event_id INTEGER PRIMARY KEY,
+                auth_index TEXT NOT NULL,
+                output_quota REAL NOT NULL,
+                attributed_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_account_output_auth
+                ON account_output_events(auth_index);
+
+            INSERT OR IGNORE INTO account_output_events(
+                usage_event_id, auth_index, output_quota, attributed_at
+            )
+            SELECT id, auth_index, qapi_quota, strftime('%s','now')
+            FROM usage_events
+            WHERE joined=1 AND failed=0 AND qapi_quota IS NOT NULL;
 
             CREATE TABLE IF NOT EXISTS quota_samples (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -433,6 +450,14 @@ class MonitorDatabase:
                     VALUES(?,?,?)
                     """,
                     (billing["id"], event["id"], utc_now()),
+                )
+                self.connection.execute(
+                    """
+                    INSERT OR IGNORE INTO account_output_events(
+                        usage_event_id, auth_index, output_quota, attributed_at
+                    ) VALUES(?,?,?,?)
+                    """,
+                    (event["id"], event["auth_index"], quota, utc_now()),
                 )
                 self.connection.execute(
                     """
@@ -753,6 +778,22 @@ class MonitorDatabase:
                 )
             account_details.append(detail)
 
+        output_rows = self.connection.execute(
+            """
+            SELECT auth_index, COALESCE(SUM(output_quota),0) AS output_quota
+            FROM account_output_events
+            GROUP BY auth_index
+            """
+        ).fetchall()
+        account_outputs = [
+            {
+                "asset_key": "cpa:"
+                + hashlib.sha256(row["auth_index"].encode("utf-8")).hexdigest()[:16],
+                "cumulative_output_quota": float(row["output_quota"] or 0),
+            }
+            for row in output_rows
+        ]
+
         event_counts = self.connection.execute(
             """
             SELECT COUNT(*) total, SUM(CASE WHEN joined=1 THEN 1 ELSE 0 END) joined
@@ -834,6 +875,7 @@ class MonitorDatabase:
             },
             "constraints": constraints,
             "account_details": account_details,
+            "account_outputs": account_outputs,
             "data_quality": {
                 "request_join_rate": join_rate,
                 "events_last_hour": total_events,

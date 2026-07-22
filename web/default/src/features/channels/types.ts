@@ -77,6 +77,8 @@ export const channelSchema = z.object({
 
 export type Channel = z.infer<typeof channelSchema>
 
+export type ChannelWorkspaceView = 'channels' | 'sub2api' | 'cpa'
+
 // ============================================================================
 // Channel Settings Types
 // ============================================================================

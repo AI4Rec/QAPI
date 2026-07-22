@@ -301,6 +301,7 @@ func migrateDB() error {
 		&ActivationJob{},
 		&OperationalAsset{},
 		&OperationalCostEntry{},
+		&TokenSale{},
 		&CasbinRule{},
 		&AuthzRole{},
 	)
@@ -359,6 +360,7 @@ func migrateDBFast() error {
 		{&ActivationJob{}, "ActivationJob"},
 		{&OperationalAsset{}, "OperationalAsset"},
 		{&OperationalCostEntry{}, "OperationalCostEntry"},
+		{&TokenSale{}, "TokenSale"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

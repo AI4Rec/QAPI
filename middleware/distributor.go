@@ -210,6 +210,21 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 	if err != nil {
 		return nil, err
 	}
+	if storage.IsDisk() {
+		var modelRequest ModelRequest
+		if _, err := storage.Seek(0, io.SeekStart); err != nil {
+			return nil, err
+		}
+		decodeErr := common.DecodeJsonSingle(storage, &modelRequest)
+		if _, err := storage.Seek(0, io.SeekStart); err != nil {
+			return nil, err
+		}
+		c.Request.Body = io.NopCloser(storage)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		return &modelRequest, nil
+	}
 	requestBody, err := storage.Bytes()
 	if err != nil {
 		return nil, err

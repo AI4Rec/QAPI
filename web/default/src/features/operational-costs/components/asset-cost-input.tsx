@@ -52,6 +52,7 @@ export function AssetCostInput(props: AssetCostInputProps) {
         queryClient.invalidateQueries({ queryKey: ['operational-costs'] }),
         queryClient.invalidateQueries({ queryKey: ['channels'] }),
         queryClient.invalidateQueries({ queryKey: ['cpa-accounts'] }),
+        queryClient.invalidateQueries({ queryKey: ['sub2api-accounts'] }),
       ])
       toast.success(t('Cost saved'))
     } catch (error) {

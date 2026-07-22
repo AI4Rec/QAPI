@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ColumnDef, type RowSelectionState } from '@tanstack/react-table'
+import type {
+  ColumnDef,
+  PaginationState,
+  RowSelectionState,
+  Updater,
+} from '@tanstack/react-table'
 import { Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -53,6 +58,13 @@ type ChannelSelectorDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   channels: UpstreamChannel[]
+  totalCount: number
+  pageIndex: number
+  pageSize: number
+  isFetching: boolean
+  onPageIndexChange: (pageIndex: number) => void
+  onPageSizeChange: (pageSize: number) => void
+  onSearchChange: (value: string) => void
   selectedChannelIds: number[]
   onSelectedChannelIdsChange: (ids: number[]) => void
   channelEndpoints: Record<number, string>
@@ -72,6 +84,13 @@ export function ChannelSelectorDialog({
   open,
   onOpenChange,
   channels,
+  totalCount,
+  pageIndex,
+  pageSize,
+  isFetching,
+  onPageIndexChange,
+  onPageSizeChange,
+  onSearchChange,
   selectedChannelIds,
   onSelectedChannelIdsChange,
   channelEndpoints,
@@ -88,17 +107,31 @@ export function ChannelSelectorDialog({
       return
     }
 
-    const availableChannelIds = new Set(channels.map((channel) => channel.id))
     const newSelection: RowSelectionState = {}
 
     selectedChannelIds.forEach((id) => {
-      if (availableChannelIds.has(id)) {
-        newSelection[id.toString()] = true
-      }
+      newSelection[id.toString()] = true
     })
 
     setRowSelection(newSelection)
   }, [selectedChannelIds, channels])
+
+  const handleRowSelectionChange = useCallback(
+    (updater: Updater<RowSelectionState>) => {
+      const nextSelection =
+        typeof updater === 'function' ? updater(rowSelection) : updater
+      setRowSelection(nextSelection)
+      const currentPageIDs = new Set(channels.map((channel) => channel.id))
+      const nextIDs = new Set(
+        selectedChannelIds.filter((id) => !currentPageIDs.has(id))
+      )
+      for (const [id, selected] of Object.entries(nextSelection)) {
+        if (selected) nextIDs.add(Number(id))
+      }
+      onSelectedChannelIdsChange([...nextIDs])
+    },
+    [channels, onSelectedChannelIdsChange, rowSelection, selectedChannelIds]
+  )
 
   const updateEndpoint = useCallback(
     (channelId: number, endpoint: string) => {
@@ -226,12 +259,10 @@ export function ChannelSelectorDialog({
           return (
             <div className='flex items-center gap-2'>
               <Select
-                items={[
-                  ...ENDPOINT_OPTIONS.map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                  })),
-                ]}
+                items={ENDPOINT_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
                 value={endpointType}
                 onValueChange={(v) => v !== null && handleTypeChange(v)}
               >
@@ -264,26 +295,28 @@ export function ChannelSelectorDialog({
     [channelEndpoints, t, updateEndpoint]
   )
 
-  const filteredChannels = useMemo(() => {
-    if (!search.trim()) return channels
-
-    const searchLower = search.toLowerCase()
-    return channels.filter(
-      (ch) =>
-        ch.name.toLowerCase().includes(searchLower) ||
-        ch.base_url.toLowerCase().includes(searchLower)
-    )
-  }, [channels, search])
-
   const sortedChannels = useMemo(() => {
-    return [...filteredChannels].sort((a, b) => {
+    return [...channels].sort((a, b) => {
       const aIsOfficial = isOfficialChannel(a)
       const bIsOfficial = isOfficialChannel(b)
       if (aIsOfficial && !bIsOfficial) return -1
       if (!aIsOfficial && bIsOfficial) return 1
       return 0
     })
-  }, [filteredChannels])
+  }, [channels])
+
+  const handlePaginationChange = useCallback(
+    (updater: Updater<PaginationState>) => {
+      const current = { pageIndex, pageSize }
+      const next = typeof updater === 'function' ? updater(current) : updater
+      if (next.pageSize !== pageSize) {
+        onPageSizeChange(next.pageSize)
+        return
+      }
+      onPageIndexChange(next.pageIndex)
+    },
+    [onPageIndexChange, onPageSizeChange, pageIndex, pageSize]
+  )
 
   const { table } = useDataTable({
     data: sortedChannels,
@@ -291,18 +324,19 @@ export function ChannelSelectorDialog({
     rowSelection,
     getRowId: (row) => row.id.toString(),
     enableRowSelection: true,
-    onRowSelectionChange: setRowSelection,
-    initialPagination: { pageIndex: 0, pageSize: 10 },
+    onRowSelectionChange: handleRowSelectionChange,
+    pagination: { pageIndex, pageSize },
+    onPaginationChange: handlePaginationChange,
+    totalCount: totalCount + 2,
+    pageCount: Math.max(1, Math.ceil(totalCount / pageSize)),
+    manualPagination: true,
     withSortedRowModel: false,
     withFacetedRowModel: false,
   })
 
   const handleConfirm = () => {
-    const selectedRows = table.getSelectedRowModel().rows
-    const selectedIds = selectedRows.map((row) => row.original.id)
-    onSelectedChannelIdsChange(selectedIds)
     onOpenChange(false)
-    onConfirm(selectedIds)
+    onConfirm(selectedChannelIds)
   }
 
   return (
@@ -332,7 +366,10 @@ export function ChannelSelectorDialog({
             <Input
               placeholder={t('Search by name or URL...')}
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                onSearchChange(e.target.value)
+              }}
               className='ps-8'
             />
           </div>
@@ -345,7 +382,9 @@ export function ChannelSelectorDialog({
           emptyCellClassName='h-24 text-center'
         />
 
-        <DataTablePagination table={table} />
+        <div className={isFetching ? 'opacity-70' : undefined}>
+          <DataTablePagination table={table} />
+        </div>
       </div>
     </Dialog>
   )

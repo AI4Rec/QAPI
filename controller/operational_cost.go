@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,11 +37,55 @@ type archiveAssetRequest struct {
 	Reason string `json:"reason"`
 }
 
-func GetOperationalCostOverview(c *gin.Context) {
-	if err := model.ReconcileOperationalAssetsFromLocal(); err != nil {
-		common.ApiError(c, err)
-		return
+type operationalArchiveItem struct {
+	ID                  int64    `json:"id"`
+	SourceType          string   `json:"source_type"`
+	SourceKey           string   `json:"source_key"`
+	SourceID            int64    `json:"source_id"`
+	DisplayName         string   `json:"display_name"`
+	State               string   `json:"state"`
+	CostMinor           int64    `json:"cost_minor"`
+	Currency            string   `json:"currency"`
+	CostDate            int64    `json:"cost_date"`
+	CostNote            string   `json:"cost_note"`
+	ArchivedAt          int64    `json:"archived_at"`
+	ArchiveReason       string   `json:"archive_reason"`
+	CumulativeOutputUSD *float64 `json:"cumulative_output_usd"`
+}
+
+func makeOperationalArchiveItems(archives []model.OperationalAsset) []operationalArchiveItem {
+	cpaOutputs := readCPAAccountOutputs()
+	items := make([]operationalArchiveItem, 0, len(archives))
+	for _, asset := range archives {
+		var outputUSD *float64
+		switch asset.SourceType {
+		case model.OperationalAssetTypeCPAAccount:
+			if value, ok := cpaOutputs[asset.SourceKey]; ok {
+				outputUSD = &value
+			}
+		case model.OperationalAssetTypeSub2APIAccount:
+			var snapshot struct {
+				CumulativeOutputUSD *float64 `json:"cumulative_output_usd"`
+			}
+			if common.UnmarshalJsonStr(asset.Snapshot, &snapshot) == nil {
+				outputUSD = snapshot.CumulativeOutputUSD
+			}
+		}
+		if outputUSD != nil && (*outputUSD < 0 || math.IsNaN(*outputUSD) || math.IsInf(*outputUSD, 0)) {
+			outputUSD = nil
+		}
+		items = append(items, operationalArchiveItem{
+			ID: asset.ID, SourceType: asset.SourceType, SourceKey: asset.SourceKey,
+			SourceID: asset.SourceID, DisplayName: asset.DisplayName, State: asset.State,
+			CostMinor: asset.CostMinor, Currency: asset.Currency, CostDate: asset.CostDate,
+			CostNote: asset.CostNote, ArchivedAt: asset.ArchivedAt, ArchiveReason: asset.ArchiveReason,
+			CumulativeOutputUSD: outputUSD,
+		})
 	}
+	return items
+}
+
+func GetOperationalCostOverview(c *gin.Context) {
 	summary, err := model.GetOperationalCostSummary()
 	if err != nil {
 		common.ApiError(c, err)
@@ -59,9 +104,60 @@ func GetOperationalCostOverview(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{
 		"summary":  summary,
 		"entries":  entries,
-		"archives": archives,
+		"archives": makeOperationalArchiveItems(archives),
 		"currency": "CNY",
 	})
+}
+
+func GetOperationalCostSummary(c *gin.Context) {
+	summary, err := model.GetOperationalCostSummary()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"summary": summary, "currency": "CNY"})
+}
+
+func ListOperationalCostEntries(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	entries, total, err := model.ListOperationalCostEntriesPage(pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(entries)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func ListOperationalCostArchives(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	sourceType := strings.TrimSpace(c.Query("source_type"))
+	if sourceType != "" && sourceType != model.OperationalAssetTypeCPAAccount && sourceType != model.OperationalAssetTypeSub2APIAccount && sourceType != model.OperationalAssetTypeChannel {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid archive source type"})
+		return
+	}
+	search := strings.TrimSpace(c.Query("search"))
+	if len(search) > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "archive search is too long"})
+		return
+	}
+	archives, total, err := model.ListArchivedOperationalAssetsPage(pageInfo, sourceType, search)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(makeOperationalArchiveItems(archives))
+	common.ApiSuccess(c, pageInfo)
+}
+
+func ReconcileOperationalCostAssets(c *gin.Context) {
+	if err := model.ReconcileOperationalAssetsFromLocal(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
 }
 
 func SetOperationalAssetCost(c *gin.Context) {
@@ -72,7 +168,7 @@ func SetOperationalAssetCost(c *gin.Context) {
 	}
 	req.SourceType = strings.TrimSpace(req.SourceType)
 	req.SourceKey = strings.TrimSpace(req.SourceKey)
-	if req.SourceKey == "" || (req.SourceType != model.OperationalAssetTypeCPAAccount && req.SourceType != model.OperationalAssetTypeChannel) {
+	if req.SourceKey == "" || (req.SourceType != model.OperationalAssetTypeCPAAccount && req.SourceType != model.OperationalAssetTypeSub2APIAccount && req.SourceType != model.OperationalAssetTypeChannel) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid asset source"})
 		return
 	}

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -22,6 +23,36 @@ func GetAllVendors(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(vendors)
 	common.ApiSuccess(c, pageInfo)
+}
+
+func GetVendorsByIDs(c *gin.Context) {
+	parts := strings.Split(c.Query("ids"), ",")
+	ids := make([]int, 0, len(parts))
+	seen := make(map[int]struct{}, len(parts))
+	for _, part := range parts {
+		id, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || id <= 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+		if len(ids) == 100 {
+			break
+		}
+	}
+	if len(ids) == 0 {
+		common.ApiSuccess(c, []model.Vendor{})
+		return
+	}
+	var vendors []model.Vendor
+	if err := model.DB.Where("id IN ?", ids).Find(&vendors).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, vendors)
 }
 
 // SearchVendors 搜索供应商

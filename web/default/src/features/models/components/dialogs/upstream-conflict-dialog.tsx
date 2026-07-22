@@ -17,20 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
-import { type ColumnDef, type RowSelectionState } from '@tanstack/react-table'
-import {
-  Search,
-  Info,
-  MousePointerClick,
-  ChevronLeft,
-  ChevronRight,
-} from 'lucide-react'
+import type { ColumnDef, RowSelectionState } from '@tanstack/react-table'
+import { Search, Info, MousePointerClick } from 'lucide-react'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { DataTableView, useDataTable } from '@/components/data-table'
 import { Dialog } from '@/components/dialog'
+import { PaginationControls } from '@/components/pagination-controls'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -40,14 +35,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { useIsMobile } from '@/hooks/use-mobile'
 
 import { applyUpstreamOverwrite } from '../../api'
@@ -66,8 +53,6 @@ const FIELD_LABELS: Record<string, string> = {
   quota_types: 'Quota Types',
   enable_groups: 'Enable Groups',
 }
-
-const PAGE_SIZE_OPTIONS = [5, 10, 20, 50] as const
 
 const formatValue = (value: unknown) => {
   if (value === null || value === undefined) return '—'
@@ -362,13 +347,6 @@ export function UpstreamConflictDialog({
 
   const pageStart = pageIndex * pageSize
   const paginatedRows = filteredRows.slice(pageStart, pageStart + pageSize)
-  const displayStart = totalFilteredFields === 0 ? 0 : pageStart + 1
-  const displayEnd =
-    totalFilteredFields === 0
-      ? 0
-      : Math.min(pageStart + pageSize, totalFilteredFields)
-  const currentPageDisplay = totalFilteredFields === 0 ? 0 : pageIndex + 1
-  const totalPagesDisplay = totalFilteredFields === 0 ? 0 : totalPages
 
   const visibleModelCount = matchingModelNames?.size ?? totalModels
   const visibleFieldCount = totalFilteredFields
@@ -396,7 +374,7 @@ export function UpstreamConflictDialog({
     const payload: SyncOverwritePayload[] = Object.entries(groupedSelections)
       .map(([modelName, fields]) => ({
         model_name: modelName,
-        fields: Array.from(fields),
+        fields: [...fields],
       }))
       .filter((item) => item.fields.length > 0)
 
@@ -538,80 +516,20 @@ export function UpstreamConflictDialog({
                   />
                 </div>
 
-                <div className='bg-muted/40 flex flex-col gap-2 border-t px-2 py-1.5 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-3 sm:py-2'>
-                  <div className='text-muted-foreground text-xs'>
-                    {t('Showing')} {displayStart}-{displayEnd} {t('of')}{' '}
-                    {visibleFieldCount} {t('field')}
-                    {visibleFieldCount === 1 ? '' : 's'}
-                  </div>
-                  <div className='flex items-center justify-between gap-2 sm:flex-wrap sm:gap-3'>
-                    <div className='flex items-center gap-1.5 text-xs sm:gap-2'>
-                      <span className='hidden sm:inline'>
-                        {t('Rows per page')}
-                      </span>
-                      <Select
-                        items={PAGE_SIZE_OPTIONS.map((size) => ({
-                          value: String(size),
-                          label: size,
-                        }))}
-                        value={String(pageSize)}
-                        onValueChange={(value) => {
-                          setPageSize(Number(value))
-                          setPageIndex(0)
-                        }}
-                      >
-                        <SelectTrigger className='h-8 w-[70px] text-xs sm:h-8 sm:w-[72px]'>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent alignItemWithTrigger={false}>
-                          <SelectGroup>
-                            {PAGE_SIZE_OPTIONS.map((size) => (
-                              <SelectItem key={size} value={String(size)}>
-                                {size}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className='flex items-center gap-1'>
-                      <Button
-                        variant='outline'
-                        size='icon'
-                        className='h-7 w-7 sm:h-8 sm:w-8'
-                        onClick={() =>
-                          setPageIndex((prev) => Math.max(0, prev - 1))
-                        }
-                        disabled={pageIndex === 0}
-                        aria-label={t('Previous page')}
-                      >
-                        <ChevronLeft className='h-3.5 w-3.5 sm:h-4 sm:w-4' />
-                      </Button>
-                      <span className='text-xs font-medium'>
-                        {t('Page {{current}} of {{total}}', {
-                          current: currentPageDisplay,
-                          total: totalPagesDisplay,
-                        })}
-                      </span>
-                      <Button
-                        variant='outline'
-                        size='icon'
-                        className='h-7 w-7 sm:h-8 sm:w-8'
-                        onClick={() =>
-                          setPageIndex((prev) =>
-                            Math.min(totalPages - 1, prev + 1)
-                          )
-                        }
-                        disabled={
-                          pageIndex >= totalPages - 1 ||
-                          totalFilteredFields === 0
-                        }
-                        aria-label={t('Next page')}
-                      >
-                        <ChevronRight className='h-3.5 w-3.5 sm:h-4 sm:w-4' />
-                      </Button>
-                    </div>
-                  </div>
+                <div className='bg-muted/40 border-t px-2 py-1.5 sm:px-3 sm:py-2'>
+                  <PaginationControls
+                    compact
+                    pageIndex={pageIndex}
+                    pageSize={pageSize}
+                    pageSizeOptions={[5, 10, 20, 50]}
+                    totalCount={visibleFieldCount}
+                    pageCount={totalPages}
+                    onPageIndexChange={setPageIndex}
+                    onPageSizeChange={(nextPageSize) => {
+                      setPageSize(nextPageSize)
+                      setPageIndex(0)
+                    }}
+                  />
                 </div>
               </div>
             )}

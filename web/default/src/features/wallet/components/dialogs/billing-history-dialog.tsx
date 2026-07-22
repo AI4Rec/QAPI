@@ -16,11 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import { Search, Copy, Check } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
+import { PaginationControls } from '@/components/pagination-controls'
 import { StatusBadge } from '@/components/status-badge'
 import {
   AlertDialog,
@@ -128,7 +129,7 @@ export function BillingHistoryDialog({
               ]}
               value={pageSize.toString()}
               onValueChange={(value) =>
-                value !== null && handlePageSizeChange(parseInt(value))
+                value !== null && handlePageSizeChange(Number.parseInt(value))
               }
             >
               <SelectTrigger className='h-9 w-[92px] sm:w-32'>
@@ -147,169 +148,160 @@ export function BillingHistoryDialog({
 
           {/* Records List */}
           <div className='max-h-[min(54vh,520px)] overflow-y-auto pr-1'>
-            {loading ? (
-              <div className='space-y-3'>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className='rounded-lg border p-3 sm:p-4'>
-                    <div className='flex items-start justify-between'>
-                      <div className='flex-1 space-y-2'>
-                        <Skeleton className='h-4 w-48' />
-                        <Skeleton className='h-3 w-32' />
-                      </div>
-                      <Skeleton className='h-5 w-16' />
-                    </div>
-                    <div className='mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4'>
-                      <Skeleton className='h-3 w-full' />
-                      <Skeleton className='h-3 w-full' />
-                      <Skeleton className='h-3 w-full' />
-                    </div>
+            {((): ReactNode => {
+              if (loading) {
+                return (
+                  <div className='space-y-3'>
+                    {['first', 'second', 'third', 'fourth', 'fifth'].map(
+                      (key) => (
+                        <div key={key} className='rounded-lg border p-3 sm:p-4'>
+                          <div className='flex items-start justify-between'>
+                            <div className='flex-1 space-y-2'>
+                              <Skeleton className='h-4 w-48' />
+                              <Skeleton className='h-3 w-32' />
+                            </div>
+                            <Skeleton className='h-5 w-16' />
+                          </div>
+                          <div className='mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4'>
+                            <Skeleton className='h-3 w-full' />
+                            <Skeleton className='h-3 w-full' />
+                            <Skeleton className='h-3 w-full' />
+                          </div>
+                        </div>
+                      )
+                    )}
                   </div>
-                ))}
-              </div>
-            ) : records.length === 0 ? (
-              <div className='text-muted-foreground flex min-h-40 flex-col items-center justify-center py-10 text-center'>
-                <p className='text-sm font-medium'>
-                  {t('No billing records found')}
-                </p>
-                <p className='mt-1 text-xs'>
-                  {keyword
-                    ? t('Try adjusting your search')
-                    : t('Your transaction history will appear here')}
-                </p>
-              </div>
-            ) : (
-              <div className='space-y-3'>
-                {records.map((record) => {
-                  const statusConfig = getStatusConfig(record.status)
-                  return (
-                    <div
-                      key={record.id}
-                      className='rounded-lg border p-3 sm:p-4'
-                    >
-                      {/* Header Row */}
-                      <div className='flex items-start justify-between gap-2'>
-                        <div className='flex-1 space-y-1'>
-                          <div className='flex min-w-0 items-center gap-2'>
-                            <code className='text-foreground truncate font-mono text-sm'>
-                              {record.trade_no}
-                            </code>
-                            <Button
-                              variant='ghost'
-                              size='sm'
-                              className='h-5 w-5 p-0'
-                              onClick={() => copyToClipboard(record.trade_no)}
-                            >
-                              {copiedText === record.trade_no ? (
-                                <Check className='h-3 w-3' />
-                              ) : (
-                                <Copy className='h-3 w-3' />
-                              )}
-                            </Button>
-                            {isAdmin && record.user_id != null && (
-                              <StatusBadge
-                                label={`${t('User ID')}: ${record.user_id}`}
-                                variant='neutral'
+                )
+              }
+              if (records.length === 0) {
+                return (
+                  <div className='text-muted-foreground flex min-h-40 flex-col items-center justify-center py-10 text-center'>
+                    <p className='text-sm font-medium'>
+                      {t('No billing records found')}
+                    </p>
+                    <p className='mt-1 text-xs'>
+                      {keyword
+                        ? t('Try adjusting your search')
+                        : t('Your transaction history will appear here')}
+                    </p>
+                  </div>
+                )
+              }
+              return (
+                <div className='space-y-3'>
+                  {records.map((record) => {
+                    const statusConfig = getStatusConfig(record.status)
+                    return (
+                      <div
+                        key={record.id}
+                        className='rounded-lg border p-3 sm:p-4'
+                      >
+                        {/* Header Row */}
+                        <div className='flex items-start justify-between gap-2'>
+                          <div className='flex-1 space-y-1'>
+                            <div className='flex min-w-0 items-center gap-2'>
+                              <code className='text-foreground truncate font-mono text-sm'>
+                                {record.trade_no}
+                              </code>
+                              <Button
+                                variant='ghost'
                                 size='sm'
-                                copyText={String(record.user_id)}
-                              />
-                            )}
+                                className='h-5 w-5 p-0'
+                                onClick={() => copyToClipboard(record.trade_no)}
+                              >
+                                {copiedText === record.trade_no ? (
+                                  <Check className='h-3 w-3' />
+                                ) : (
+                                  <Copy className='h-3 w-3' />
+                                )}
+                              </Button>
+                              {isAdmin && record.user_id != null && (
+                                <StatusBadge
+                                  label={`${t('User ID')}: ${record.user_id}`}
+                                  variant='neutral'
+                                  size='sm'
+                                  copyText={String(record.user_id)}
+                                />
+                              )}
+                            </div>
+                            <div className='text-muted-foreground text-xs'>
+                              {formatTimestamp(record.create_time)}
+                            </div>
                           </div>
-                          <div className='text-muted-foreground text-xs'>
-                            {formatTimestamp(record.create_time)}
-                          </div>
+                          <StatusBadge
+                            label={statusConfig.label}
+                            variant={statusConfig.variant}
+                            showDot
+                            copyable={false}
+                          />
                         </div>
-                        <StatusBadge
-                          label={statusConfig.label}
-                          variant={statusConfig.variant}
-                          showDot
-                          copyable={false}
-                        />
-                      </div>
 
-                      {/* Details Grid */}
-                      <div className='mt-3 grid grid-cols-2 gap-3 sm:mt-4 sm:grid-cols-3 sm:gap-4'>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Payment Method')}
-                          </Label>
-                          <div className='text-sm font-medium'>
-                            {getPaymentMethodName(record.payment_method, t)}
+                        {/* Details Grid */}
+                        <div className='mt-3 grid grid-cols-2 gap-3 sm:mt-4 sm:grid-cols-3 sm:gap-4'>
+                          <div className='space-y-1'>
+                            <Label className='text-muted-foreground text-xs'>
+                              {t('Payment Method')}
+                            </Label>
+                            <div className='text-sm font-medium'>
+                              {getPaymentMethodName(record.payment_method, t)}
+                            </div>
+                          </div>
+                          <div className='space-y-1'>
+                            <Label className='text-muted-foreground text-xs'>
+                              {t('Amount')}
+                            </Label>
+                            <div className='text-sm font-semibold'>
+                              {formatCurrencyFromUSD(record.amount, {
+                                digitsLarge: 2,
+                                digitsSmall: 2,
+                                abbreviate: false,
+                              })}
+                            </div>
+                          </div>
+                          <div className='space-y-1'>
+                            <Label className='text-muted-foreground text-xs'>
+                              {t('Payment')}
+                            </Label>
+                            <div className='text-sm font-semibold text-red-600'>
+                              {formatNumber(record.money)}
+                            </div>
                           </div>
                         </div>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Amount')}
-                          </Label>
-                          <div className='text-sm font-semibold'>
-                            {formatCurrencyFromUSD(record.amount, {
-                              digitsLarge: 2,
-                              digitsSmall: 2,
-                              abbreviate: false,
-                            })}
-                          </div>
-                        </div>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Payment')}
-                          </Label>
-                          <div className='text-sm font-semibold text-red-600'>
-                            {formatNumber(record.money)}
-                          </div>
-                        </div>
-                      </div>
 
-                      {/* Admin Actions */}
-                      {isAdmin && record.status === 'pending' && (
-                        <div className='mt-4 flex justify-end'>
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => setConfirmTradeNo(record.trade_no)}
-                            disabled={completing}
-                          >
-                            {t('Complete Order')}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+                        {/* Admin Actions */}
+                        {isAdmin && record.status === 'pending' && (
+                          <div className='mt-4 flex justify-end'>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() => setConfirmTradeNo(record.trade_no)}
+                              disabled={completing}
+                            >
+                              {t('Complete Order')}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Pagination */}
           {!loading && records.length > 0 && (
-            <div className='flex flex-col items-center gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between'>
-              <div className='text-muted-foreground text-xs sm:text-sm'>
-                {t('Showing')} {(page - 1) * pageSize + 1}-
-                {Math.min(page * pageSize, total)} {t('of')} {total}
-              </div>
-              <div className='flex items-center gap-2'>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => handlePageChange(page - 1)}
-                  disabled={page <= 1}
-                  className='h-8 w-8 p-0'
-                >
-                  <ChevronLeft className='h-4 w-4' />
-                </Button>
-                <div className='text-muted-foreground flex items-center gap-1 text-sm'>
-                  <span className='font-medium'>{page}</span>
-                  <span>/</span>
-                  <span>{totalPages}</span>
-                </div>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => handlePageChange(page + 1)}
-                  disabled={page >= totalPages}
-                  className='h-8 w-8 p-0'
-                >
-                  <ChevronRight className='h-4 w-4' />
-                </Button>
-              </div>
+            <div className='border-t pt-4'>
+              <PaginationControls
+                pageIndex={page - 1}
+                pageSize={pageSize}
+                totalCount={total}
+                pageCount={totalPages}
+                onPageIndexChange={(pageIndex) =>
+                  handlePageChange(pageIndex + 1)
+                }
+                onPageSizeChange={handlePageSizeChange}
+              />
             </div>
           )}
         </div>

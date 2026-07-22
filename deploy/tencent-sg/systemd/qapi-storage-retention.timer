@@ -1,0 +1,11 @@
+[Unit]
+Description=Run QAPI storage retention weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 03:35:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=qapi-storage-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -64,9 +64,16 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 	maxBytes := int64(maxMB) << 20
 
 	contentLength := c.Request.ContentLength
+	spoolThresholdMB := constant.ResponsesSpoolThresholdMB
+	if spoolThresholdMB <= 0 {
+		spoolThresholdMB = 1
+	}
+	forceDisk := constant.ResponsesFastPathEnabled &&
+		c.Request.URL.Path == "/v1/responses" &&
+		(contentLength < 0 || contentLength >= int64(spoolThresholdMB)<<20)
 
 	// 使用新的存储系统
-	storage, err := CreateBodyStorageFromReader(c.Request.Body, contentLength, maxBytes)
+	storage, err := CreateBodyStorageFromReader(c.Request.Body, contentLength, maxBytes, forceDisk)
 	_ = c.Request.Body.Close()
 
 	if err != nil {
@@ -119,7 +126,7 @@ func UnmarshalBodyReusable(c *gin.Context, v any) error {
 		if _, seekErr := storage.Seek(0, io.SeekStart); seekErr != nil {
 			return seekErr
 		}
-		if err := DecodeJson(storage, v); err != nil {
+		if err := DecodeJsonSingle(storage, v); err != nil {
 			return err
 		}
 		if _, seekErr := storage.Seek(0, io.SeekStart); seekErr != nil {

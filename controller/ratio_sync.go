@@ -985,12 +985,27 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 }
 
 func GetSyncableChannels(c *gin.Context) {
-	channels, err := model.GetAllChannels(0, 0, true, false)
-	if err != nil {
+	pageInfo := common.GetPageQuery(c)
+	query := model.ExcludeArchivedChannels(model.DB.Model(&model.Channel{})).Where("base_url IS NOT NULL")
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	if keyword != "" {
+		pattern := "%" + keyword + "%"
+		query = query.Where("name LIKE ? OR base_url LIKE ?", pattern, pattern)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": err.Error(),
 		})
+		return
+	}
+	var channels []*model.Channel
+	if err := query.Omit("key").Order("id desc").
+		Limit(pageInfo.GetPageSize()).
+		Offset(pageInfo.GetStartIdx()).
+		Find(&channels).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
@@ -1007,23 +1022,24 @@ func GetSyncableChannels(c *gin.Context) {
 		}
 	}
 
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+	presets := []dto.SyncableChannel{{
 		ID:      officialRatioPresetID,
 		Name:    officialRatioPresetName,
 		BaseURL: officialRatioPresetBaseURL,
 		Status:  1,
-	})
-
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+	}, {
 		ID:      modelsDevPresetID,
 		Name:    modelsDevPresetName,
 		BaseURL: modelsDevPresetBaseURL,
 		Status:  1,
-	})
+	}}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    syncableChannels,
+		"data": gin.H{
+			"page": pageInfo.Page, "page_size": pageInfo.PageSize, "total": total,
+			"items": syncableChannels, "presets": presets,
+		},
 	})
 }

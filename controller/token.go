@@ -175,6 +175,10 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if token.MaxConcurrency < 0 || token.MaxConcurrency > 1000 || token.RPMRateLimit < 0 || token.RPMRateLimit > 100000 {
+		common.ApiError(c, fmt.Errorf("令牌并发或 RPM 限制超出有效范围"))
+		return
+	}
 	// 非无限额度时，检查额度值是否超出有效范围
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
@@ -221,6 +225,8 @@ func AddToken(c *gin.Context) {
 		AllowIps:           token.AllowIps,
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
+		MaxConcurrency:     token.MaxConcurrency,
+		RPMRateLimit:       token.RPMRateLimit,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -258,6 +264,10 @@ func UpdateToken(c *gin.Context) {
 	}
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
+		return
+	}
+	if token.MaxConcurrency < 0 || token.MaxConcurrency > 1000 || token.RPMRateLimit < 0 || token.RPMRateLimit > 100000 {
+		common.ApiError(c, fmt.Errorf("令牌并发或 RPM 限制超出有效范围"))
 		return
 	}
 	if !token.UnlimitedQuota {
@@ -299,6 +309,8 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
+		cleanToken.MaxConcurrency = token.MaxConcurrency
+		cleanToken.RPMRateLimit = token.RPMRateLimit
 	}
 	err = cleanToken.Update()
 	if err != nil {

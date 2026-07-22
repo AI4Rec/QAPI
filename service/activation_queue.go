@@ -139,6 +139,30 @@ func GetActivationQueueOverview(limit int) (*ActivationQueueOverview, error) {
 	}, nil
 }
 
+func GetActivationQueueSummary() (map[string]any, error) {
+	summary, err := model.GetActivationQueueSummary()
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"paused":            IsActivationQueuePaused(),
+		"last_reconcile_at": activationLastReconciled.Load(),
+		"targets":           summary.Targets,
+		"enabled_targets":   summary.EnabledTargets,
+		"pending_jobs":      summary.PendingJobs,
+		"running_jobs":      summary.RunningJobs,
+		"failed_jobs":       summary.FailedJobs,
+	}, nil
+}
+
+func ListActivationQueueJobs(pageInfo *common.PageInfo) ([]model.ActivationQueueItem, int64, error) {
+	return model.ListActivationQueuePage(pageInfo)
+}
+
+func ListActivationQueueTargets(pageInfo *common.PageInfo) ([]*model.ActivationTarget, int64, error) {
+	return model.ListActivationTargetsPage(pageInfo)
+}
+
 func SetActivationTargetEnabled(id int64, enabled bool) error {
 	if err := model.SetActivationTargetEnabled(id, enabled); err != nil {
 		return err
@@ -385,7 +409,7 @@ func getActivationSnapshot(ctx context.Context, target *model.ActivationTarget) 
 func activateTarget(ctx context.Context, target *model.ActivationTarget) error {
 	switch target.SourceType {
 	case model.ActivationSourceCPAAccount:
-		return activateCPAAccount(ctx, target.SourceID)
+		return PingCPAAccount(ctx, target.SourceID)
 	case model.ActivationSourceCodexChannel:
 		channelID, err := strconv.Atoi(target.SourceID)
 		if err != nil {
@@ -405,6 +429,9 @@ func discoverCPAActivationTargets(ctx context.Context) ([]activationSnapshot, er
 	snapshots := make([]activationSnapshot, 0, len(files))
 	for _, file := range files {
 		if !strings.EqualFold(mapString(file, "type"), "codex") {
+			continue
+		}
+		if mapBool(file, "disabled") || mapBool(file, "unavailable") {
 			continue
 		}
 		authIndex := mapString(file, "auth_index")
@@ -435,6 +462,9 @@ func getCPAActivationSnapshot(ctx context.Context, authIndex string) (*activatio
 	}
 	for _, file := range files {
 		if mapString(file, "auth_index") == authIndex {
+			if mapBool(file, "disabled") || mapBool(file, "unavailable") {
+				return nil, errors.New("CPA account is frozen or unavailable")
+			}
 			archived, archiveErr := model.IsOperationalAssetArchived(model.OperationalAssetTypeCPAAccount, model.OperationalCPAAssetKey(authIndex))
 			if archiveErr != nil {
 				return nil, archiveErr
@@ -613,7 +643,8 @@ func activateCodexChannel(ctx context.Context, channelID int) error {
 	return nil
 }
 
-func activateCPAAccount(ctx context.Context, authIndex string) error {
+// PingCPAAccount sends the canonical minimal request used by manual tests and activation jobs.
+func PingCPAAccount(ctx context.Context, authIndex string) error {
 	files, err := listCPAAuthFiles(ctx)
 	if err != nil {
 		return err

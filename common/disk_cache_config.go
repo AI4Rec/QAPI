@@ -171,6 +171,13 @@ func IsDiskCacheAvailable(requestSize int64) bool {
 	if !IsDiskCacheEnabled() {
 		return false
 	}
+	return IsDiskCacheCapacityAvailable(requestSize)
+}
+
+// IsDiskCacheCapacityAvailable checks the configured capacity without requiring
+// general disk caching to be enabled. Responses forced spooling uses the same
+// bounded cache directory even when the general cache feature is disabled.
+func IsDiskCacheCapacityAvailable(requestSize int64) bool {
 	maxBytes := GetDiskCacheMaxSizeBytes()
 	currentUsage := atomic.LoadInt64(&diskCacheStats.CurrentDiskUsageBytes)
 	return currentUsage+requestSize <= maxBytes

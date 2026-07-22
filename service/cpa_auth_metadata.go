@@ -23,14 +23,14 @@ func ExtractCPAAuthMetadata(values map[string]any) CPAAuthMetadata {
 		PlanType:  firstCPAString(values, "chatgpt_plan_type", "plan_type"),
 		Email:     firstCPAString(values, "email"),
 	}
+	if accessToken, ok := values["access_token"].(string); ok {
+		metadata = mergeCPAMetadata(metadata, metadataFromCPAJWT(accessToken))
+	}
 	switch idToken := values["id_token"].(type) {
 	case map[string]any:
 		metadata = mergeCPAMetadata(metadata, metadataFromCPAClaims(idToken))
 	case string:
 		metadata = mergeCPAMetadata(metadata, metadataFromCPAJWT(idToken))
-	}
-	if accessToken, ok := values["access_token"].(string); ok {
-		metadata = mergeCPAMetadata(metadata, metadataFromCPAJWT(accessToken))
 	}
 	return metadata
 }
@@ -116,6 +116,15 @@ func IsCLIProxyCompatibleCPAIDToken(token string) bool {
 		return false
 	}
 	return metadataFromCPAClaims(claims).AccountID != ""
+}
+
+func IsCLIProxyCompatibleCPAToken(token string) bool {
+	claims := decodeCPAJWTClaims(token)
+	if len(claims) == 0 {
+		return false
+	}
+	_, hasStringAudience := claims["aud"].(string)
+	return !hasStringAudience
 }
 
 func isCPAIDTokenMetadataUsable(value any) bool {

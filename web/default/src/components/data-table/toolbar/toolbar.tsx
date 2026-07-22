@@ -41,6 +41,8 @@ type FilterDef = {
     count?: number
   }[]
   singleSelect?: boolean
+  onSearchChange?: (value: string) => void
+  isLoading?: boolean
 }
 
 type SearchDraft = {
@@ -266,6 +268,8 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
             title={filter.title}
             options={filter.options}
             singleSelect={filter.singleSelect}
+            onSearchChange={filter.onSearchChange}
+            isLoading={filter.isLoading}
           />
         )
       }),

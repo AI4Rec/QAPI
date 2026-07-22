@@ -18,20 +18,27 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { useMemo } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 
-import { getModels, searchModels, getVendors } from '../api'
+import {
+  getModels,
+  getVendors,
+  getVendorsByIds,
+  searchModels,
+  searchVendors,
+} from '../api'
 import {
   DEFAULT_PAGE_SIZE,
   getModelStatusOptions,
   getSyncStatusOptions,
 } from '../constants'
 import { modelsQueryKeys, vendorsQueryKeys } from '../lib'
+import type { Vendor } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { useModelsColumns } from './models-columns'
 import { useModels } from './models-provider'
@@ -42,6 +49,8 @@ export function ModelsTable() {
   const { t } = useTranslation()
   const { selectedVendor } = useModels()
   const isMobile = useMediaQuery('(max-width: 640px)')
+  const [vendorSearch, setVendorSearch] = useState('')
+  const deferredVendorSearch = useDeferredValue(vendorSearch)
 
   // URL state management
   const {
@@ -77,22 +86,18 @@ export function ModelsTable() {
     []
 
   // Fetch vendors for filter
-  const { data: vendorsData } = useQuery({
-    queryKey: vendorsQueryKeys.list(),
-    queryFn: () => getVendors({ page_size: 1000 }),
+  const { data: vendorsData, isFetching: isFetchingVendors } = useQuery({
+    queryKey: vendorsQueryKeys.list({ keyword: deferredVendorSearch }),
+    queryFn: () =>
+      deferredVendorSearch.trim()
+        ? searchVendors({
+            keyword: deferredVendorSearch.trim(),
+            p: 1,
+            page_size: 20,
+          })
+        : getVendors({ p: 1, page_size: 20 }),
+    placeholderData: (previous) => previous,
   })
-
-  const vendors = useMemo(
-    () => vendorsData?.data?.items || [],
-    [vendorsData?.data?.items]
-  )
-
-  const vendorOptions = useMemo(() => {
-    return vendors.map((v) => ({
-      label: v.name,
-      value: String(v.id),
-    }))
-  }, [vendors])
 
   // Determine whether to use search or regular list API
   const shouldSearch = Boolean(globalFilter?.trim())
@@ -155,9 +160,41 @@ export function ModelsTable() {
     placeholderData: (previousData) => previousData,
   })
 
-  const models = data?.data?.items || []
+  const models = useMemo(() => data?.data?.items || [], [data?.data?.items])
   const totalCount = data?.data?.total || 0
   const vendorCounts = data?.data?.vendor_counts
+  const visibleVendorIds = useMemo(() => {
+    const ids = new Set<number>()
+    for (const model of models) {
+      if (model.vendor_id) ids.add(model.vendor_id)
+    }
+    const selectedID = Number(activeVendorFilter)
+    if (Number.isInteger(selectedID) && selectedID > 0) ids.add(selectedID)
+    return [...ids]
+  }, [activeVendorFilter, models])
+  const exactVendorsQuery = useQuery({
+    queryKey: vendorsQueryKeys.list({ ids: visibleVendorIds }),
+    queryFn: () => getVendorsByIds(visibleVendorIds),
+    enabled: visibleVendorIds.length > 0,
+  })
+  const vendors = useMemo(() => {
+    const byId = new Map<number, Vendor>()
+    for (const vendor of vendorsData?.data?.items ?? []) {
+      byId.set(vendor.id, vendor)
+    }
+    for (const vendor of exactVendorsQuery.data?.data ?? []) {
+      byId.set(vendor.id, vendor)
+    }
+    return [...byId.values()]
+  }, [exactVendorsQuery.data?.data, vendorsData?.data?.items])
+  const vendorOptions = useMemo(
+    () =>
+      vendors.map((vendor) => ({
+        label: vendor.name,
+        value: String(vendor.id),
+      })),
+    [vendors]
+  )
 
   // Columns configuration
   const columns = useModelsColumns(vendors)
@@ -223,6 +260,8 @@ export function ModelsTable() {
             title: t('Vendor'),
             options: vendorFilterOptions,
             singleSelect: true,
+            onSearchChange: setVendorSearch,
+            isLoading: isFetchingVendors,
           },
           {
             columnId: 'sync_official',

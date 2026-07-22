@@ -85,3 +85,70 @@ export type SystemInstanceDeleteResponse = {
     deleted_count: number
   }
 }
+
+export type RedisRuntimeStats = {
+  enabled: boolean
+  healthy: boolean
+  latency_ms: number
+  version: string
+  uptime_seconds: number
+  used_memory_bytes: number
+  peak_memory_bytes: number
+  max_memory_bytes: number
+  memory_usage_percent: number
+  max_memory_policy: string
+  connected_clients: number
+  blocked_clients: number
+  total_commands_processed: number
+  instantaneous_ops_per_sec: number
+  keyspace_hits: number
+  keyspace_misses: number
+  hit_rate_percent: number
+  db_size: number
+  pool: {
+    hits: number
+    misses: number
+    timeouts: number
+    total_conns: number
+    idle_conns: number
+    stale_conns: number
+  }
+  admission: {
+    total: number
+    small: number
+    medium: number
+    large: number
+    huge: number
+  }
+  error?: string
+}
+
+export type ResponsesProtectionStats = {
+  enabled: boolean
+  max_request_body_mb: number
+  spool_threshold_mb: number
+  small_concurrency: number
+  medium_concurrency: number
+  large_concurrency: number
+  huge_concurrency: number
+  total_concurrency: number
+  admission_wait_ms: number
+}
+
+export type RuntimeProtectionStats = {
+  cache_stats?: {
+    active_disk_files: number
+    current_disk_usage_bytes: number
+    disk_cache_hits: number
+    active_memory_buffers: number
+    current_memory_usage_bytes: number
+  }
+  redis_stats: RedisRuntimeStats
+  responses_protection: ResponsesProtectionStats
+}
+
+export type RuntimeProtectionStatsResponse = {
+  success: boolean
+  message?: string
+  data?: RuntimeProtectionStats
+}

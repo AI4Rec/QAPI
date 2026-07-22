@@ -1,3 +1,4 @@
+import type { SystemTask } from '@/features/system-settings/types'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -84,6 +85,214 @@ export type CPAImportResponse = {
   }
 }
 
+export type Sub2APIImportResponse = {
+  success: boolean
+  message?: string
+  data?: Record<string, unknown>
+}
+
+export type ManagedComponent = 'cliproxyapi' | 'sub2api'
+
+export type ComponentReleaseStatus = {
+  component: ManagedComponent
+  repository: string
+  current_version: string
+  latest_version: string
+  release_name: string
+  release_notes: string
+  release_url: string
+  published_at: string
+  update_available: boolean
+  rollback_available: boolean
+  updater_available: boolean
+  checked_at: number
+}
+
+export type ComponentUpdateTask = SystemTask<
+  {
+    action: 'update' | 'rollback'
+    component: ManagedComponent
+    target_version?: string
+  },
+  {
+    component: ManagedComponent
+    stage: 'preparing' | 'installing' | 'completed'
+    progress: number
+  },
+  {
+    action: 'update' | 'rollback'
+    component: ManagedComponent
+    target_version?: string
+    output?: string
+  }
+>
+
+export type ComponentUpdateStatusResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    status: ComponentReleaseStatus
+    active_task?: ComponentUpdateTask | null
+  }
+}
+
+export type StartComponentUpdateResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    task: ComponentUpdateTask
+    created: boolean
+  }
+}
+
+export async function getComponentUpdateStatus(
+  component: ManagedComponent,
+  refresh = false
+): Promise<ComponentUpdateStatusResponse> {
+  const res = await api.get(
+    `/api/component-update/${component}`,
+    channelActionConfig({ params: refresh ? { refresh: true } : undefined })
+  )
+  return res.data
+}
+
+export async function startComponentUpdate(
+  component: ManagedComponent
+): Promise<StartComponentUpdateResponse> {
+  const res = await api.post(
+    `/api/component-update/${component}`,
+    null,
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function startComponentRollback(
+  component: ManagedComponent
+): Promise<StartComponentUpdateResponse> {
+  const res = await api.post(
+    `/api/component-update/${component}/rollback`,
+    null,
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export type Sub2APIAccount = {
+  id: number
+  name: string
+  email?: string
+  platform: string
+  type: string
+  concurrency: number
+  current_concurrency: number
+  priority: number
+  status: string
+  schedulable: boolean
+  error_message?: string
+  expires_at?: number | null
+  plan_type?: string
+  usage?: CPAAccountUsage
+  today_stats?: {
+    requests: number
+    tokens: number
+    cost: number
+    standard_cost: number
+    user_cost: number
+  }
+  asset_key: string
+  cost_minor: number
+  cost_date: number
+  cost_note: string
+  cumulative_output_usd?: number
+}
+
+export type Sub2APIAccountSelectionResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    ids: number[]
+    total: number
+  }
+}
+
+export type Sub2APIBatchAction =
+  | 'enable'
+  | 'disable'
+  | 'cost'
+  | 'archive'
+  | 'delete'
+
+export type AccountInspectionProvider = 'auto' | 'cpa' | 'sub2api'
+export type AccountInspectionOperation = 'verify' | 'ping'
+export type AccountInspectionTarget = {
+  provider: Exclude<AccountInspectionProvider, 'auto'>
+  identifier: string
+  email?: string
+  source: string
+  state: string
+}
+export type AccountInspectionResult = AccountInspectionTarget & {
+  operation: AccountInspectionOperation
+  success: boolean
+  latency_ms: number
+  upstream_status?: number
+  message?: string
+  usage?: CPAAccountUsage
+}
+export type AccountInspectionTargetsResponse = {
+  success: boolean
+  message?: string
+  data?: { items: AccountInspectionTarget[] }
+}
+export type AccountInspectionResponse = {
+  success: boolean
+  message?: string
+  data?: AccountInspectionResult
+}
+
+export type Sub2APIBatchResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    succeeded: number[]
+    failed: Array<{ id: number; error: string }>
+  }
+}
+
+export type Sub2APIAccountsResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    items: Sub2APIAccount[]
+    total: number
+    page: number
+    page_size: number
+    pages: number
+  }
+}
+
+export type CPAAccountPoolType = 'cpa_import' | 'temporary' | 'official_login'
+
+export type CPAAccountSortBy =
+  | 'name'
+  | 'cost'
+  | 'status'
+  | 'success'
+  | 'failed'
+  | 'created_at'
+  | 'updated_at'
+
+export type CPAAccountSortOrder = 'asc' | 'desc'
+
+export type CPAAccountBatchAction =
+  | 'disable'
+  | 'enable'
+  | 'move'
+  | 'cost'
+  | 'archive'
+  | 'delete'
+
 export type CPAUsageWindow = {
   used_percent?: number
   reset_at?: number
@@ -122,7 +331,7 @@ export type CPAAccount = {
   next_retry_after?: string
   plan_type?: string
   account_id?: string
-  pool_type: 'cpa_import' | 'official_login'
+  pool_type: CPAAccountPoolType
   duplicate?: boolean
   duplicate_count?: number
   usage?: CPAAccountUsage
@@ -130,6 +339,7 @@ export type CPAAccount = {
   cost_minor?: number
   cost_date?: number
   cost_note?: string
+  cumulative_output_usd?: number
 }
 
 export type CPAAccountsResponse = {
@@ -137,6 +347,11 @@ export type CPAAccountsResponse = {
   message?: string
   data?: {
     accounts: CPAAccount[]
+    page: number
+    page_size: number
+    total: number
+    sort_by: CPAAccountSortBy
+    sort_order: CPAAccountSortOrder
     summary: {
       total: number
       unique: number
@@ -144,6 +359,36 @@ export type CPAAccountsResponse = {
       disabled: number
       duplicates: number
     }
+  }
+}
+
+export type CPAAccountSelectionResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    names: string[]
+    total: number
+  }
+}
+
+export type CPAAccountBatchRequest = {
+  names: string[]
+  action: CPAAccountBatchAction
+  pool_type?: Extract<CPAAccountPoolType, 'cpa_import' | 'temporary'>
+  cost_minor?: number
+  cost_date?: number
+  cost_note?: string
+  archive_reason?: string
+  delete_confirmation?: string
+}
+
+export type CPAAccountBatchResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    total: number
+    succeeded: string[]
+    failed: Array<{ name: string; error: string }>
   }
 }
 
@@ -174,18 +419,164 @@ export type CPARemoteBrowserInput =
   | { type: 'key'; key: string; code: string; key_code: number }
 
 export async function importCPAAccounts(
-  content: string
+  content: string,
+  poolType: Extract<CPAAccountPoolType, 'cpa_import' | 'temporary'>
 ): Promise<CPAImportResponse> {
   const res = await api.post(
     '/api/cpa/import',
+    { content, pool_type: poolType },
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function importSub2APIAccounts(
+  content: string
+): Promise<Sub2APIImportResponse> {
+  const res = await api.post(
+    '/api/sub2api/import',
     { content },
     channelActionConfig()
   )
   return res.data
 }
 
-export async function getCPAAccounts(): Promise<CPAAccountsResponse> {
-  const res = await api.get('/api/cpa/accounts', channelActionConfig())
+export async function getAccountInspectionTargets(params: {
+  provider: 'all' | Exclude<AccountInspectionProvider, 'auto'>
+  scope: 'all' | 'attention'
+}): Promise<AccountInspectionTargetsResponse> {
+  const res = await api.get('/api/account-inspection/targets', {
+    ...channelActionConfig(),
+    params,
+  })
+  return res.data
+}
+
+export async function inspectAccount(request: {
+  provider: AccountInspectionProvider
+  operation: AccountInspectionOperation
+  identifier?: string
+  content?: string
+}): Promise<AccountInspectionResponse> {
+  const res = await api.post(
+    '/api/account-inspection/run',
+    request,
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function getSub2APIAccounts(params?: {
+  page?: number
+  pageSize?: number
+}): Promise<Sub2APIAccountsResponse> {
+  const res = await api.get('/api/sub2api/accounts', {
+    ...channelActionConfig(),
+    params: {
+      page: params?.page ?? 1,
+      page_size: params?.pageSize ?? 20,
+      sort_by: 'created_at',
+      sort_order: 'desc',
+    },
+  })
+  return res.data
+}
+
+export async function setSub2APIAccountSchedulable(
+  id: number,
+  schedulable: boolean
+): Promise<Sub2APIImportResponse> {
+  const res = await api.post(
+    `/api/sub2api/accounts/${id}/schedulable`,
+    { schedulable },
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function deleteSub2APIAccount(
+  id: number
+): Promise<Sub2APIImportResponse> {
+  const res = await api.delete(`/api/sub2api/accounts/${id}`, {
+    ...channelActionConfig(),
+  })
+  return res.data
+}
+
+export async function archiveSub2APIAccount(
+  id: number,
+  reason = ''
+): Promise<Sub2APIImportResponse> {
+  const res = await api.post(
+    `/api/sub2api/accounts/${id}/archive`,
+    { reason },
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function getSub2APIAccountSelection(): Promise<Sub2APIAccountSelectionResponse> {
+  const res = await api.get(
+    '/api/sub2api/accounts/selection',
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function batchManageSub2APIAccounts(request: {
+  account_ids: number[]
+  action: Sub2APIBatchAction
+  cost_minor?: number
+  cost_date?: number
+  cost_note?: string
+  archive_reason?: string
+}): Promise<Sub2APIBatchResponse> {
+  const res = await api.post(
+    '/api/sub2api/accounts/batch',
+    request,
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function getCPAAccounts(params?: {
+  poolType?: CPAAccountPoolType
+  page?: number
+  pageSize?: number
+  sortBy?: CPAAccountSortBy
+  sortOrder?: CPAAccountSortOrder
+}): Promise<CPAAccountsResponse> {
+  const res = await api.get('/api/cpa/accounts', {
+    ...channelActionConfig(),
+    params: {
+      pool_type: params?.poolType,
+      p: params?.page ?? 1,
+      page_size: params?.pageSize ?? 20,
+      sort_by: params?.sortBy,
+      sort_order: params?.sortOrder,
+    },
+  })
+  return res.data
+}
+
+export async function getCPAAccountSelection(
+  poolType: CPAAccountPoolType
+): Promise<CPAAccountSelectionResponse> {
+  const res = await api.get('/api/cpa/accounts/selection', {
+    ...channelActionConfig(),
+    params: { pool_type: poolType },
+  })
+  return res.data
+}
+
+export async function batchManageCPAAccounts(
+  request: CPAAccountBatchRequest
+): Promise<CPAAccountBatchResponse> {
+  const res = await api.post(
+    '/api/cpa/accounts/batch',
+    request,
+    channelActionConfig()
+  )
   return res.data
 }
 

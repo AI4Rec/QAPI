@@ -22,6 +22,7 @@ import type {
   ConfirmPaymentComplianceResponse,
   FetchUpstreamRatiosRequest,
   LogCleanupTask,
+  SystemTask,
   SystemOptionsResponse,
   SystemTaskListResponse,
   SystemTaskResponse,
@@ -70,8 +71,10 @@ export async function getCurrentLogCleanupTask() {
   return res.data
 }
 
-export async function getSystemTask(taskId: string) {
-  const res = await api.get<SystemTaskResponse<LogCleanupTask>>(
+export async function getSystemTask<
+  TTask extends SystemTask = LogCleanupTask,
+>(taskId: string) {
+  const res = await api.get<SystemTaskResponse<TTask>>(
     `/api/system-task/${taskId}`
   )
   return res.data
@@ -91,9 +94,20 @@ export async function resetModelRatios() {
   return res.data
 }
 
-export async function getUpstreamChannels() {
+export async function getUpstreamChannels(params?: {
+  page?: number
+  pageSize?: number
+  keyword?: string
+}) {
   const res = await api.get<UpstreamChannelsResponse>(
-    '/api/ratio_sync/channels'
+    '/api/ratio_sync/channels',
+    {
+      params: {
+        p: params?.page ?? 1,
+        page_size: params?.pageSize ?? 20,
+        keyword: params?.keyword,
+      },
+    }
   )
   return res.data
 }

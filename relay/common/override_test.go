@@ -2285,6 +2285,30 @@ func TestShouldAuditParamPathUsesFieldBoundaryPrefixMatching(t *testing.T) {
 	require.False(t, shouldAuditParamPath("message"))
 }
 
+func TestApplyHeaderOnlyParamOverrideWithRelayInfo(t *testing.T) {
+	info := &RelayInfo{
+		RequestHeaders: map[string]string{"Originator": "Codex CLI"},
+		ChannelMeta: &ChannelMeta{
+			ParamOverride: map[string]any{
+				"operations": []any{
+					map[string]any{"mode": "pass_headers", "value": []any{"Originator"}},
+				},
+			},
+		},
+	}
+
+	require.True(t, IsHeaderOnlyParamOverride(info.ParamOverride))
+	require.NoError(t, ApplyHeaderOnlyParamOverrideWithRelayInfo(info))
+	require.True(t, info.UseRuntimeHeadersOverride)
+	require.Equal(t, "Codex CLI", info.RuntimeHeadersOverride["originator"])
+
+	info.ParamOverride = map[string]any{
+		"operations": []any{map[string]any{"mode": "set", "path": "model", "value": "gpt-5.1"}},
+	}
+	require.False(t, IsHeaderOnlyParamOverride(info.ParamOverride))
+	require.Error(t, ApplyHeaderOnlyParamOverrideWithRelayInfo(info))
+}
+
 func assertJSONEqual(t *testing.T, want, got string) {
 	t.Helper()
 

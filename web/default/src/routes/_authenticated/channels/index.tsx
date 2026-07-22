@@ -31,6 +31,7 @@ const channelsSearchSchema = z.object({
   type: z.array(z.string()).optional().catch([]),
   group: z.array(z.string()).optional().catch([]),
   model: z.string().optional().catch(''),
+  view: z.enum(['channels', 'sub2api', 'cpa']).optional().catch('channels'),
 })
 
 export const Route = createFileRoute('/_authenticated/channels/')({

@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Download, Loader2, RefreshCcw, Terminal } from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -96,37 +97,43 @@ export function ViewLogsDialog({
     isLoading: isLoadingLogs,
     refetch: refetchLogs,
     isFetching: isFetchingLogs,
-  } = useQuery({
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ['deployment-logs', deploymentId, containerId, stream],
-    queryFn: () =>
+    queryFn: ({ pageParam }) =>
       deploymentId && containerId
         ? getDeploymentLogs(deploymentId, {
             container_id: containerId,
             stream,
-            limit: 500,
+            cursor: pageParam || undefined,
+            limit: 200,
           })
         : null,
+    initialPageParam: '',
+    getNextPageParam: (lastPage) =>
+      lastPage?.data?.has_more ? lastPage.data.next_cursor : undefined,
     enabled: open && deploymentId !== null && Boolean(containerId),
     refetchInterval: open && autoRefresh ? 5000 : false,
   })
 
   const logsText = useMemo(() => {
-    const raw = logsData?.data
-    return typeof raw === 'string' ? raw : ''
-  }, [logsData?.data])
+    return (logsData?.pages ?? [])
+      .flatMap((page) => (page?.data?.content ? [page.data.content] : []))
+      .join('\n')
+  }, [logsData?.pages])
 
   const logLines = useMemo(() => {
     const normalized = logsText.replaceAll(/\r\n?/g, '\n')
     return normalized ? normalized.split('\n') : []
   }, [logsText])
-  const keyedLogLines = useMemo(() => {
-    const seen = new Map<string, number>()
-    return logLines.map((line) => {
-      const count = seen.get(line) ?? 0
-      seen.set(line, count + 1)
-      return { key: `${line}-${count}`, line }
-    })
-  }, [logLines])
+  const rowVirtualizer = useVirtualizer({
+    count: logLines.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 20,
+    overscan: 20,
+  })
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -174,10 +181,19 @@ export function ViewLogsDialog({
     )
   } else {
     logsContent = (
-      <div className='font-mono text-sm'>
-        {keyedLogLines.map(({ key, line }) => (
-          <div key={key} className='whitespace-pre-wrap text-gray-200'>
-            {line}
+      <div
+        className='relative font-mono text-sm'
+        style={{ height: rowVirtualizer.getTotalSize() }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => (
+          <div
+            key={virtualRow.key}
+            ref={rowVirtualizer.measureElement}
+            data-index={virtualRow.index}
+            className='absolute top-0 left-0 w-full whitespace-pre-wrap text-gray-200'
+            style={{ transform: `translateY(${virtualRow.start}px)` }}
+          >
+            {logLines[virtualRow.index]}
           </div>
         ))}
       </div>
@@ -327,6 +343,21 @@ export function ViewLogsDialog({
           setAutoScroll(isAtBottom)
         }}
       >
+        {hasNextPage && (
+          <div className='mb-3 flex justify-center'>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={isFetchingNextPage}
+              onClick={() => void fetchNextPage()}
+            >
+              {isFetchingNextPage && (
+                <Loader2 className='size-4 animate-spin' />
+              )}
+              {t('More')}
+            </Button>
+          </div>
+        )}
         {logsContent}
       </div>
     </Dialog>

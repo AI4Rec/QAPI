@@ -55,10 +55,11 @@ func GetSubscriptionSelf(c *gin.Context) {
 	settingMap, _ := model.GetUserSetting(userId, false)
 	pref := common.NormalizeBillingPreference(settingMap.BillingPreference)
 
-	// Get all subscriptions (including expired)
-	allSubscriptions, err := model.GetAllUserSubscriptions(userId)
+	pageInfo := common.GetPageQuery(c)
+	allSubscriptions, total, err := model.GetUserSubscriptionsPage(userId, pageInfo)
 	if err != nil {
 		allSubscriptions = []model.SubscriptionSummary{}
+		total = 0
 	}
 
 	// Get active subscriptions for backward compatibility
@@ -66,11 +67,19 @@ func GetSubscriptionSelf(c *gin.Context) {
 	if err != nil {
 		activeSubscriptions = []model.SubscriptionSummary{}
 	}
+	purchaseCounts, err := model.GetUserSubscriptionPurchaseCounts(userId)
+	if err != nil {
+		purchaseCounts = map[int]int64{}
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(allSubscriptions)
 
 	common.ApiSuccess(c, gin.H{
 		"billing_preference": pref,
 		"subscriptions":      activeSubscriptions, // all active subscriptions
-		"all_subscriptions":  allSubscriptions,    // all subscriptions including expired
+		"all_subscriptions":  allSubscriptions,
+		"history":            pageInfo,
+		"purchase_counts":    purchaseCounts,
 	})
 }
 
@@ -383,12 +392,15 @@ func AdminListUserSubscriptions(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效的用户ID")
 		return
 	}
-	subs, err := model.GetAllUserSubscriptions(userId)
+	pageInfo := common.GetPageQuery(c)
+	subs, total, err := model.GetUserSubscriptionsPage(userId, pageInfo)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, subs)
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(subs)
+	common.ApiSuccess(c, pageInfo)
 }
 
 type AdminCreateUserSubscriptionRequest struct {

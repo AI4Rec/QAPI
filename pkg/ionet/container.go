@@ -163,6 +163,25 @@ func (c *Client) GetContainerLogsRaw(deploymentID, containerID string, opts *Get
 	return string(resp.Body), nil
 }
 
+func (c *Client) GetContainerLogsPageRaw(deploymentID, containerID string, opts *GetLogsOptions) (string, string, error) {
+	endpoint, err := buildLogEndpoint(deploymentID, containerID, opts)
+	if err != nil {
+		return "", "", err
+	}
+	resp, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get container logs: %w", err)
+	}
+	nextCursor := resp.Headers["X-Next-Cursor"]
+	if nextCursor == "" {
+		nextCursor = resp.Headers["Next-Cursor"]
+	}
+	if nextCursor == "" {
+		nextCursor = resp.Headers["Cursor"]
+	}
+	return string(resp.Body), nextCursor, nil
+}
+
 // StreamContainerLogs streams real-time logs for a specific container
 // This method uses a callback function to handle incoming log entries
 func (c *Client) StreamContainerLogs(deploymentID, containerID string, opts *GetLogsOptions, callback func(*LogEntry) error) error {
