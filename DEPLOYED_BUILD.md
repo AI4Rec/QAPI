@@ -11,7 +11,7 @@ deployment.
 - Source captured from: `/tmp/codex-runs/qapi-activation` on `tencent-sg`
 - Running binary path: `/opt/new-api/new-api`
 - Running binary SHA-256:
-  `4fcfbc8f0e7dddabbdb522b3ecbdb7ec3c51457d62dc50dfafa584558e5e71c2`
+  `22b28441a8a9bc93fa90ea2e9e81a0b6db70ec868fb252503c3fe42c65f18eb9`
 
 The remote source tree has no `.git` metadata. This repository is the reliable
 history point for the curated deployment.
@@ -25,6 +25,8 @@ history point for the curated deployment.
 - Curated.17 deployment verified: 2026-07-13 18:23 +0800
 - Curated.17 final binary installed: 2026-07-21 22:44 +08:00
 - Curated.17 service observed running: 2026-07-22 05:24 +08:00
+- Channel account-pool status filter deployed: 2026-07-23 13:31 +08:00
+- Sub2API visible account-count fix deployed: 2026-07-23 14:51 +08:00
 - Service health check: HTTP 200 on `/api/status`
 - CPA auth metadata compatibility verified against CLIProxyAPI management endpoints
 
@@ -35,6 +37,7 @@ history point for the curated deployment.
 - Server-side Codex OAuth through CLIProxyAPI
 - Full Chrome controlled through an isolated Xvfb display
 - Operational-cost asset tracking and archive management
+- CPA and Sub2API account-pool filtering for quota, forbidden, and paused states
 - Activation queue scheduling and administration
 - Responses API compatibility and billing normalization extensions
 

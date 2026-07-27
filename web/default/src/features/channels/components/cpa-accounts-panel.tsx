@@ -51,6 +51,11 @@ import {
   type CPAUsageWindow,
   type AccountInspectionOperation,
 } from '../api'
+import {
+  ACCOUNT_POOL_FILTER_OPTIONS,
+  cpaAccountMatchesPoolFilter,
+  type AccountPoolFilter,
+} from '../lib/account-pool-filters'
 import { AccountSelectionToolbar } from './account-selection-toolbar'
 import { AccountUsageWindow } from './account-usage-window'
 import { ComponentVersionBar } from './component-version-bar'
@@ -106,12 +111,14 @@ type AccountPoolSectionProps = {
   pageSize: number
   sortBy: CPAAccountSortBy
   sortOrder: CPAAccountSortOrder
+  accountFilter: AccountPoolFilter
   selectedNames: Set<string>
   selectingAll: boolean
   onPageIndexChange: (pageIndex: number) => void
   onPageSizeChange: (pageSize: number) => void
   onSortByChange: (sortBy: CPAAccountSortBy) => void
   onSortOrderChange: (sortOrder: CPAAccountSortOrder) => void
+  onAccountFilterChange: (filter: AccountPoolFilter) => void
   onToggleSelection: (name: string, selected: boolean) => void
   onTogglePageSelection: (names: string[], selected: boolean) => void
   onSelectAll: () => void
@@ -134,6 +141,7 @@ function useCPAAccountPool(poolType: CPAAccountPoolType, enabled: boolean) {
     by: CPAAccountSortBy
     order: CPAAccountSortOrder
   }>({ by: 'name', order: 'asc' })
+  const [accountFilter, setAccountFilter] = useState<AccountPoolFilter>('all')
   const query = useQuery({
     queryKey: [
       'cpa-accounts',
@@ -177,8 +185,10 @@ function useCPAAccountPool(poolType: CPAAccountPoolType, enabled: boolean) {
     pageIndex,
     pageSize,
     query,
+    accountFilter,
     setPageIndex,
     setPageSize,
+    setAccountFilter,
     setSortBy,
     setSortOrder,
     sortBy: sort.by,
@@ -246,7 +256,10 @@ function useCPAAccountSelection(poolType: CPAAccountPoolType) {
 
 function AccountPoolSection(props: AccountPoolSectionProps) {
   const { t } = useTranslation()
-  const pageNames = props.accounts.map((account) => account.name)
+  const visibleAccounts = props.accounts.filter((account) =>
+    cpaAccountMatchesPoolFilter(account, props.accountFilter)
+  )
+  const pageNames = visibleAccounts.map((account) => account.name)
   const selectedPageCount = pageNames.reduce(
     (count, name) => count + (props.selectedNames.has(name) ? 1 : 0),
     0
@@ -275,6 +288,34 @@ function AccountPoolSection(props: AccountPoolSectionProps) {
           )}
         </div>
         <div className='flex flex-wrap items-center gap-2'>
+          <Select<AccountPoolFilter>
+            items={ACCOUNT_POOL_FILTER_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.label),
+            }))}
+            value={props.accountFilter}
+            onValueChange={(value) => {
+              if (value !== null) props.onAccountFilterChange(value)
+            }}
+          >
+            <SelectTrigger
+              size='sm'
+              className='min-w-[150px]'
+              aria-label={t('Filter')}
+              title={t('Filter')}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {ACCOUNT_POOL_FILTER_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {t(option.label)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
           <Select<CPAAccountSortBy>
             items={CPA_ACCOUNT_SORT_OPTIONS.map((option) => ({
               value: option.value,
@@ -358,239 +399,246 @@ function AccountPoolSection(props: AccountPoolSectionProps) {
             {props.emptyMessage}
           </div>
         )}
-        {!props.isLoading && props.accounts.length > 0 && (
-          <>
-            <div className='overflow-x-auto'>
-              <table className='w-full min-w-[1210px] text-left text-sm'>
-                <thead className='bg-muted/50 text-muted-foreground text-xs'>
-                  <tr>
-                    <th className='w-10 px-4 py-3'>
-                      <Checkbox
-                        checked={allPageSelected}
-                        indeterminate={somePageSelected}
-                        onCheckedChange={(value) =>
-                          props.onTogglePageSelection(pageNames, !!value)
-                        }
-                        aria-label={t('Select all accounts on this page')}
+        {!props.isLoading &&
+          props.accounts.length > 0 &&
+          visibleAccounts.length === 0 && (
+            <div className='text-muted-foreground p-8 text-center text-sm'>
+              {t('No records found. Try adjusting your filters.')}
+            </div>
+          )}
+        {!props.isLoading && visibleAccounts.length > 0 && (
+          <div className='overflow-x-auto'>
+            <table className='w-full min-w-[1210px] text-left text-sm'>
+              <thead className='bg-muted/50 text-muted-foreground text-xs'>
+                <tr>
+                  <th className='w-10 px-4 py-3'>
+                    <Checkbox
+                      checked={allPageSelected}
+                      indeterminate={somePageSelected}
+                      onCheckedChange={(value) =>
+                        props.onTogglePageSelection(pageNames, !!value)
+                      }
+                      aria-label={t('Select all accounts on this page')}
+                    />
+                  </th>
+                  <th className='px-4 py-3'>{t('Account')}</th>
+                  <th className='px-4 py-3'>{t('Cost')}</th>
+                  <th className='px-4 py-3'>{t('Cumulative output')}</th>
+                  <th className='px-4 py-3'>{t('Status')}</th>
+                  <th className='px-4 py-3'>{t('5-Hour Window')}</th>
+                  <th className='px-4 py-3'>{t('7 Days')}</th>
+                  <th className='px-4 py-3'>{t('API Requests')}</th>
+                  <th className='px-4 py-3 text-right'>{t('Manage')}</th>
+                </tr>
+              </thead>
+              <tbody className='divide-y'>
+                {visibleAccounts.map((account) => {
+                  const usage = account.usage
+                  const rateLimit = usage?.rate_limit
+                  const working = props.workingName === account.name
+                  const refreshMinutes = quotaRefreshMinutes(
+                    rateLimit?.primary_window,
+                    props.now
+                  )
+                  let statusLabel = t('Running')
+                  if (account.disabled) {
+                    statusLabel = t('Paused')
+                  } else if (account.unavailable) {
+                    statusLabel = t('Unavailable')
+                  }
+                  let toggleIcon = <Snowflake data-icon='inline-start' />
+                  if (working) {
+                    toggleIcon = (
+                      <Loader2
+                        data-icon='inline-start'
+                        className='animate-spin'
                       />
-                    </th>
-                    <th className='px-4 py-3'>{t('Account')}</th>
-                    <th className='px-4 py-3'>{t('Cost')}</th>
-                    <th className='px-4 py-3'>{t('Cumulative output')}</th>
-                    <th className='px-4 py-3'>{t('Status')}</th>
-                    <th className='px-4 py-3'>{t('5-Hour Window')}</th>
-                    <th className='px-4 py-3'>{t('7 Days')}</th>
-                    <th className='px-4 py-3'>{t('API Requests')}</th>
-                    <th className='px-4 py-3 text-right'>{t('Manage')}</th>
-                  </tr>
-                </thead>
-                <tbody className='divide-y'>
-                  {props.accounts.map((account) => {
-                    const usage = account.usage
-                    const rateLimit = usage?.rate_limit
-                    const working = props.workingName === account.name
-                    const refreshMinutes = quotaRefreshMinutes(
-                      rateLimit?.primary_window,
-                      props.now
                     )
-                    let statusLabel = t('Running')
-                    if (account.disabled) {
-                      statusLabel = t('Paused')
-                    } else if (account.unavailable) {
-                      statusLabel = t('Unavailable')
-                    }
-                    let toggleIcon = <Snowflake data-icon='inline-start' />
-                    if (working) {
-                      toggleIcon = (
-                        <Loader2
-                          data-icon='inline-start'
-                          className='animate-spin'
+                  } else if (account.disabled) {
+                    toggleIcon = <Play data-icon='inline-start' />
+                  }
+                  return (
+                    <tr
+                      key={account.name}
+                      className={account.disabled ? 'opacity-60' : ''}
+                    >
+                      <td className='px-4 py-3'>
+                        <Checkbox
+                          checked={props.selectedNames.has(account.name)}
+                          onCheckedChange={(value) =>
+                            props.onToggleSelection(account.name, !!value)
+                          }
+                          aria-label={t('Select account {{name}}', {
+                            name: account.email || account.name,
+                          })}
                         />
-                      )
-                    } else if (account.disabled) {
-                      toggleIcon = <Play data-icon='inline-start' />
-                    }
-                    return (
-                      <tr
-                        key={account.name}
-                        className={account.disabled ? 'opacity-60' : ''}
-                      >
-                        <td className='px-4 py-3'>
-                          <Checkbox
-                            checked={props.selectedNames.has(account.name)}
-                            onCheckedChange={(value) =>
-                              props.onToggleSelection(account.name, !!value)
-                            }
-                            aria-label={t('Select account {{name}}', {
-                              name: account.email || account.name,
-                            })}
-                          />
-                        </td>
-                        <td className='px-4 py-3'>
-                          <div className='flex items-center gap-2 font-medium'>
-                            {account.email || account.name}
-                            {account.duplicate && (
-                              <Badge
-                                variant='destructive'
-                                className='text-[10px]'
-                              >
-                                {t('Duplicate')} ×{account.duplicate_count}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className='text-muted-foreground mt-1 text-xs'>
-                            {t('Plan')}: {account.plan_type || t('Unknown')}
-                          </div>
-                          <div className='text-muted-foreground mt-0.5 max-w-[320px] truncate font-mono text-[10px]'>
-                            {t('File')}: {account.name}
-                          </div>
-                        </td>
-                        <td className='px-4 py-3'>
-                          <AssetCostInput
-                            source_type='cpa_account'
-                            source_key={account.asset_key}
-                            display_name={account.email || account.name}
-                            cost_date={account.cost_date}
-                            note={account.cost_note}
-                            costMinor={account.cost_minor || 0}
-                            disabled={working}
-                          />
-                        </td>
-                        <td className='px-4 py-3 font-medium tabular-nums'>
-                          {formatBillingCurrencyFromUSD(
-                            account.cumulative_output_usd ?? 0
-                          )}
-                        </td>
-                        <td className='px-4 py-3'>
-                          <Badge
-                            variant={account.disabled ? 'secondary' : 'outline'}
-                          >
-                            {statusLabel}
-                          </Badge>
-                          {rateLimit?.limit_reached && (
-                            <div className='text-destructive mt-1 flex items-center gap-1 text-xs'>
-                              <AlertTriangle className='size-3' />
-                              {t('Insufficient quota')}
-                            </div>
-                          )}
-                          {refreshMinutes !== null && !usage?.error && (
-                            <div className='text-primary mt-1 flex items-center gap-1 text-xs font-semibold tabular-nums'>
-                              <Clock3 className='size-3' />
-                              {t('Quota refresh in {{minutes}} minutes', {
-                                minutes: refreshMinutes,
-                              })}
-                            </div>
-                          )}
-                          {account.status_message && (
-                            <div className='text-muted-foreground mt-1 max-w-[180px] truncate text-xs'>
-                              {account.status_message}
-                            </div>
-                          )}
-                        </td>
-                        <td className='px-4 py-3'>
-                          {usage?.error ? (
-                            <span className='text-muted-foreground text-xs'>
-                              {t('Failed to load')}
-                            </span>
-                          ) : (
-                            <AccountUsageWindow
-                              value={rateLimit?.primary_window}
-                            />
-                          )}
-                        </td>
-                        <td className='px-4 py-3'>
-                          {usage?.error ? (
-                            <span className='text-muted-foreground text-xs'>
-                              {t('Failed to load')}
-                            </span>
-                          ) : (
-                            <AccountUsageWindow
-                              value={rateLimit?.secondary_window}
-                            />
-                          )}
-                        </td>
-                        <td className='px-4 py-3'>
-                          <div className='flex flex-wrap gap-1.5 tabular-nums'>
-                            <Badge variant='outline'>
-                              {account.success || 0} {t('Success')}
-                            </Badge>
+                      </td>
+                      <td className='px-4 py-3'>
+                        <div className='flex items-center gap-2 font-medium'>
+                          {account.email || account.name}
+                          {account.duplicate && (
                             <Badge
-                              variant={
-                                (account.failed || 0) > 0
-                                  ? 'destructive'
-                                  : 'secondary'
-                              }
-                            >
-                              {account.failed || 0} {t('Failed')}
-                            </Badge>
-                          </div>
-                        </td>
-                        <td className='px-4 py-3'>
-                          <div className='flex justify-end gap-1'>
-                            <Button
-                              variant='ghost'
-                              size='icon-sm'
-                              aria-label={t('Verify account')}
-                              title={t('Verify account')}
-                              onClick={() => props.onInspect(account, 'verify')}
-                            >
-                              <Activity />
-                            </Button>
-                            <Button
-                              variant='ghost'
-                              size='icon-sm'
-                              aria-label={t('Ping account')}
-                              title={t('Ping account')}
-                              onClick={() => props.onInspect(account, 'ping')}
-                            >
-                              <Zap />
-                            </Button>
-                            <Button
-                              variant='outline'
-                              size='sm'
-                              disabled={working}
-                              onClick={() => props.onToggle(account)}
-                            >
-                              {toggleIcon}
-                              {account.disabled ? t('Enable') : t('Pause')}
-                            </Button>
-                            <Button
-                              variant='outline'
-                              size='sm'
-                              disabled={working}
-                              onClick={() => props.onArchive(account)}
-                            >
-                              <Archive data-icon='inline-start' />
-                              {t('Archive')}
-                            </Button>
-                            <Button
                               variant='destructive'
-                              size='sm'
-                              disabled={working}
-                              onClick={() => props.onRemove(account)}
+                              className='text-[10px]'
                             >
-                              <Trash2 data-icon='inline-start' />
-                              {t('Delete')}
-                            </Button>
+                              {t('Duplicate')} ×{account.duplicate_count}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className='text-muted-foreground mt-1 text-xs'>
+                          {t('Plan')}: {account.plan_type || t('Unknown')}
+                        </div>
+                        <div className='text-muted-foreground mt-0.5 max-w-[320px] truncate font-mono text-[10px]'>
+                          {t('File')}: {account.name}
+                        </div>
+                      </td>
+                      <td className='px-4 py-3'>
+                        <AssetCostInput
+                          source_type='cpa_account'
+                          source_key={account.asset_key}
+                          display_name={account.email || account.name}
+                          cost_date={account.cost_date}
+                          note={account.cost_note}
+                          costMinor={account.cost_minor || 0}
+                          disabled={working}
+                        />
+                      </td>
+                      <td className='px-4 py-3 font-medium tabular-nums'>
+                        {formatBillingCurrencyFromUSD(
+                          account.cumulative_output_usd ?? 0
+                        )}
+                      </td>
+                      <td className='px-4 py-3'>
+                        <Badge
+                          variant={account.disabled ? 'secondary' : 'outline'}
+                        >
+                          {statusLabel}
+                        </Badge>
+                        {rateLimit?.limit_reached && (
+                          <div className='text-destructive mt-1 flex items-center gap-1 text-xs'>
+                            <AlertTriangle className='size-3' />
+                            {t('Insufficient quota')}
                           </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className='border-t p-4'>
-              <PaginationControls
-                pageIndex={props.pageIndex}
-                pageSize={props.pageSize}
-                totalCount={props.summary.total}
-                pageCount={Math.ceil(props.summary.total / props.pageSize)}
-                onPageIndexChange={props.onPageIndexChange}
-                onPageSizeChange={props.onPageSizeChange}
-              />
-            </div>
-          </>
+                        )}
+                        {refreshMinutes !== null && !usage?.error && (
+                          <div className='text-primary mt-1 flex items-center gap-1 text-xs font-semibold tabular-nums'>
+                            <Clock3 className='size-3' />
+                            {t('Quota refresh in {{minutes}} minutes', {
+                              minutes: refreshMinutes,
+                            })}
+                          </div>
+                        )}
+                        {account.status_message && (
+                          <div className='text-muted-foreground mt-1 max-w-[180px] truncate text-xs'>
+                            {account.status_message}
+                          </div>
+                        )}
+                      </td>
+                      <td className='px-4 py-3'>
+                        {usage?.error ? (
+                          <span className='text-muted-foreground text-xs'>
+                            {t('Failed to load')}
+                          </span>
+                        ) : (
+                          <AccountUsageWindow
+                            value={rateLimit?.primary_window}
+                          />
+                        )}
+                      </td>
+                      <td className='px-4 py-3'>
+                        {usage?.error ? (
+                          <span className='text-muted-foreground text-xs'>
+                            {t('Failed to load')}
+                          </span>
+                        ) : (
+                          <AccountUsageWindow
+                            value={rateLimit?.secondary_window}
+                          />
+                        )}
+                      </td>
+                      <td className='px-4 py-3'>
+                        <div className='flex flex-wrap gap-1.5 tabular-nums'>
+                          <Badge variant='outline'>
+                            {account.success || 0} {t('Success')}
+                          </Badge>
+                          <Badge
+                            variant={
+                              (account.failed || 0) > 0
+                                ? 'destructive'
+                                : 'secondary'
+                            }
+                          >
+                            {account.failed || 0} {t('Failed')}
+                          </Badge>
+                        </div>
+                      </td>
+                      <td className='px-4 py-3'>
+                        <div className='flex justify-end gap-1'>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            aria-label={t('Verify account')}
+                            title={t('Verify account')}
+                            onClick={() => props.onInspect(account, 'verify')}
+                          >
+                            <Activity />
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            aria-label={t('Ping account')}
+                            title={t('Ping account')}
+                            onClick={() => props.onInspect(account, 'ping')}
+                          >
+                            <Zap />
+                          </Button>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            disabled={working}
+                            onClick={() => props.onToggle(account)}
+                          >
+                            {toggleIcon}
+                            {account.disabled ? t('Enable') : t('Pause')}
+                          </Button>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            disabled={working}
+                            onClick={() => props.onArchive(account)}
+                          >
+                            <Archive data-icon='inline-start' />
+                            {t('Archive')}
+                          </Button>
+                          <Button
+                            variant='destructive'
+                            size='sm'
+                            disabled={working}
+                            onClick={() => props.onRemove(account)}
+                          >
+                            <Trash2 data-icon='inline-start' />
+                            {t('Delete')}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!props.isLoading && props.accounts.length > 0 && (
+          <div className='border-t p-4'>
+            <PaginationControls
+              pageIndex={props.pageIndex}
+              pageSize={props.pageSize}
+              totalCount={props.summary.total}
+              pageCount={Math.ceil(props.summary.total / props.pageSize)}
+              onPageIndexChange={props.onPageIndexChange}
+              onPageSizeChange={props.onPageSizeChange}
+            />
+          </div>
         )}
       </div>
     </section>
@@ -795,6 +843,7 @@ export function CPAAccountsPanel() {
           pageSize={activePool.pageSize}
           sortBy={activePool.sortBy}
           sortOrder={activePool.sortOrder}
+          accountFilter={activePool.accountFilter}
           selectedNames={activeSelection.selectedNames}
           selectingAll={activeSelection.selectingAll}
           onPageIndexChange={activePool.setPageIndex}
@@ -804,6 +853,7 @@ export function CPAAccountsPanel() {
           }}
           onSortByChange={activePool.setSortBy}
           onSortOrderChange={activePool.setSortOrder}
+          onAccountFilterChange={activePool.setAccountFilter}
           onToggleSelection={activeSelection.toggleSelection}
           onTogglePageSelection={activeSelection.togglePageSelection}
           onSelectAll={() => selectAllAccounts(activeSelection)}
