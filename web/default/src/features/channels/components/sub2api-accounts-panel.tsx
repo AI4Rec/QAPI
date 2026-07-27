@@ -60,7 +60,6 @@ import {
 } from '../api'
 import {
   ACCOUNT_POOL_FILTER_OPTIONS,
-  sub2APIAccountMatchesPoolFilter,
   type AccountPoolFilter,
 } from '../lib/account-pool-filters'
 import { AccountSelectionToolbar } from './account-selection-toolbar'
@@ -83,16 +82,19 @@ export function Sub2APIAccountsPanel() {
     operation: AccountInspectionOperation
   } | null>(null)
   const query = useQuery({
-    queryKey: ['sub2api-accounts', pageIndex, pageSize],
-    queryFn: () => getSub2APIAccounts({ page: pageIndex + 1, pageSize }),
+    queryKey: ['sub2api-accounts', pageIndex, pageSize, accountFilter],
+    queryFn: () =>
+      getSub2APIAccounts({
+        page: pageIndex + 1,
+        pageSize,
+        accountFilter,
+      }),
     staleTime: 30_000,
     refetchInterval: 300_000,
   })
   const data = query.data?.data
   const accounts = data?.items ?? []
-  const visibleAccounts = accounts.filter((account) =>
-    sub2APIAccountMatchesPoolFilter(account, accountFilter)
-  )
+  const visibleAccounts = accounts
   const loadFailed = query.data?.success === false || query.isError
   const pageIDs = visibleAccounts.map((account) => account.id)
   const selectedPageCount = pageIDs.reduce(
@@ -132,7 +134,7 @@ export function Sub2APIAccountsPanel() {
   const selectAll = async () => {
     setSelectingAll(true)
     try {
-      const result = await getSub2APIAccountSelection()
+      const result = await getSub2APIAccountSelection(accountFilter)
       if (!result.success || !result.data) {
         throw new Error(result.message || t('Failed to select all accounts'))
       }
@@ -222,7 +224,8 @@ export function Sub2APIAccountsPanel() {
       <ComponentVersionBar component='sub2api' />
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <Badge variant='outline'>
-          {t('Total')} {visibleAccounts.length}
+          {accountFilter === 'all' ? t('Total') : t('Matched')}{' '}
+          {data?.total ?? 0}
         </Badge>
         <div className='flex flex-wrap items-center gap-2'>
           <Select<AccountPoolFilter>
@@ -232,7 +235,11 @@ export function Sub2APIAccountsPanel() {
             }))}
             value={accountFilter}
             onValueChange={(value) => {
-              if (value !== null) setAccountFilter(value)
+              if (value !== null) {
+                setAccountFilter(value)
+                setPageIndex(0)
+                setSelectedIDs(new Set())
+              }
             }}
           >
             <SelectTrigger
@@ -282,6 +289,9 @@ export function Sub2APIAccountsPanel() {
           selectedCount={selectedIDs.size}
           totalCount={data?.total ?? 0}
           selectingAll={selectingAll}
+          selectAllLabel={
+            accountFilter === 'all' ? undefined : t('Select all (filtered)')
+          }
           onSelectAll={selectAll}
           onClear={() => setSelectedIDs(new Set())}
           onManage={() => setBatchOpen(true)}
@@ -298,14 +308,18 @@ export function Sub2APIAccountsPanel() {
             {query.data?.message || t('Failed to load Sub2API accounts')}
           </div>
         )}
-        {!query.isLoading && !loadFailed && accounts.length === 0 && (
-          <div className='text-muted-foreground p-8 text-center text-sm'>
-            {t('No Sub2API accounts.')}
-          </div>
-        )}
         {!query.isLoading &&
           !loadFailed &&
-          accounts.length > 0 &&
+          accounts.length === 0 &&
+          accountFilter === 'all' && (
+            <div className='text-muted-foreground p-8 text-center text-sm'>
+              {t('No Sub2API accounts.')}
+            </div>
+          )}
+        {!query.isLoading &&
+          !loadFailed &&
+          accounts.length === 0 &&
+          accountFilter !== 'all' &&
           visibleAccounts.length === 0 && (
             <div className='text-muted-foreground p-8 text-center text-sm'>
               {t('No records found. Try adjusting your filters.')}

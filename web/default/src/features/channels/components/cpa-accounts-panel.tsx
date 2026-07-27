@@ -53,7 +53,6 @@ import {
 } from '../api'
 import {
   ACCOUNT_POOL_FILTER_OPTIONS,
-  cpaAccountMatchesPoolFilter,
   type AccountPoolFilter,
 } from '../lib/account-pool-filters'
 import { AccountSelectionToolbar } from './account-selection-toolbar'
@@ -100,6 +99,7 @@ type AccountPoolSectionProps = {
   workingName: string | null
   isLoading: boolean
   isFetching: boolean
+  totalCount: number
   summary: {
     total: number
     unique: number
@@ -150,6 +150,7 @@ function useCPAAccountPool(poolType: CPAAccountPoolType, enabled: boolean) {
       pageSize,
       sort.by,
       sort.order,
+      accountFilter,
     ],
     queryFn: () =>
       getCPAAccounts({
@@ -158,6 +159,7 @@ function useCPAAccountPool(poolType: CPAAccountPoolType, enabled: boolean) {
         pageSize,
         sortBy: sort.by,
         sortOrder: sort.order,
+        accountFilter,
       }),
     enabled,
     staleTime: 30_000,
@@ -180,6 +182,10 @@ function useCPAAccountPool(poolType: CPAAccountPoolType, enabled: boolean) {
     setSort((current) => ({ ...current, order: sortOrder }))
     setPageIndex(0)
   }, [])
+  const changeAccountFilter = useCallback((filter: AccountPoolFilter) => {
+    setAccountFilter(filter)
+    setPageIndex(0)
+  }, [])
 
   return {
     pageIndex,
@@ -188,7 +194,7 @@ function useCPAAccountPool(poolType: CPAAccountPoolType, enabled: boolean) {
     accountFilter,
     setPageIndex,
     setPageSize,
-    setAccountFilter,
+    setAccountFilter: changeAccountFilter,
     setSortBy,
     setSortOrder,
     sortBy: sort.by,
@@ -196,7 +202,10 @@ function useCPAAccountPool(poolType: CPAAccountPoolType, enabled: boolean) {
   }
 }
 
-function useCPAAccountSelection(poolType: CPAAccountPoolType) {
+function useCPAAccountSelection(
+  poolType: CPAAccountPoolType,
+  accountFilter: AccountPoolFilter
+) {
   const { t } = useTranslation()
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set())
   const [selectingAll, setSelectingAll] = useState(false)
@@ -227,7 +236,7 @@ function useCPAAccountSelection(poolType: CPAAccountPoolType) {
   const selectAll = useCallback(async () => {
     setSelectingAll(true)
     try {
-      const result = await getCPAAccountSelection(poolType)
+      const result = await getCPAAccountSelection(poolType, accountFilter)
       if (!result.success || !result.data) {
         throw new Error(result.message || t('Failed to select all accounts'))
       }
@@ -235,7 +244,7 @@ function useCPAAccountSelection(poolType: CPAAccountPoolType) {
     } finally {
       setSelectingAll(false)
     }
-  }, [poolType, t])
+  }, [accountFilter, poolType, t])
 
   const clearSelection = useCallback(() => setSelectedNames(new Set()), [])
   const replaceSelection = useCallback(
@@ -256,9 +265,7 @@ function useCPAAccountSelection(poolType: CPAAccountPoolType) {
 
 function AccountPoolSection(props: AccountPoolSectionProps) {
   const { t } = useTranslation()
-  const visibleAccounts = props.accounts.filter((account) =>
-    cpaAccountMatchesPoolFilter(account, props.accountFilter)
-  )
+  const visibleAccounts = props.accounts
   const pageNames = visibleAccounts.map((account) => account.name)
   const selectedPageCount = pageNames.reduce(
     (count, name) => count + (props.selectedNames.has(name) ? 1 : 0),
@@ -272,9 +279,20 @@ function AccountPoolSection(props: AccountPoolSectionProps) {
     <section className='flex flex-col gap-3'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <div className='flex flex-wrap items-center gap-2'>
-          <Badge variant='outline'>
-            {t('Total')} {props.summary.total}
-          </Badge>
+          {props.accountFilter === 'all' ? (
+            <Badge variant='outline'>
+              {t('Total')} {props.summary.total}
+            </Badge>
+          ) : (
+            <>
+              <Badge variant='outline'>
+                {t('Matched')} {props.totalCount}
+              </Badge>
+              <Badge variant='secondary'>
+                {t('Total')} {props.summary.total}
+              </Badge>
+            </>
+          )}
           <Badge variant='outline'>
             {t('Enabled')} {props.summary.active}
           </Badge>
@@ -381,8 +399,13 @@ function AccountPoolSection(props: AccountPoolSectionProps) {
       <div className='overflow-hidden rounded-lg border'>
         <AccountSelectionToolbar
           selectedCount={props.selectedNames.size}
-          totalCount={props.summary.total}
+          totalCount={props.totalCount}
           selectingAll={props.selectingAll}
+          selectAllLabel={
+            props.accountFilter === 'all'
+              ? undefined
+              : t('Select all (filtered)')
+          }
           onSelectAll={props.onSelectAll}
           onClear={props.onClearSelection}
           onManage={props.onManageSelection}
@@ -394,13 +417,16 @@ function AccountPoolSection(props: AccountPoolSectionProps) {
             {t('Loading accounts...')}
           </div>
         )}
-        {!props.isLoading && props.accounts.length === 0 && (
-          <div className='text-muted-foreground p-8 text-center text-sm'>
-            {props.emptyMessage}
-          </div>
-        )}
         {!props.isLoading &&
-          props.accounts.length > 0 &&
+          props.totalCount === 0 &&
+          props.accountFilter === 'all' && (
+            <div className='text-muted-foreground p-8 text-center text-sm'>
+              {props.emptyMessage}
+            </div>
+          )}
+        {!props.isLoading &&
+          props.totalCount === 0 &&
+          props.accountFilter !== 'all' &&
           visibleAccounts.length === 0 && (
             <div className='text-muted-foreground p-8 text-center text-sm'>
               {t('No records found. Try adjusting your filters.')}
@@ -633,8 +659,8 @@ function AccountPoolSection(props: AccountPoolSectionProps) {
             <PaginationControls
               pageIndex={props.pageIndex}
               pageSize={props.pageSize}
-              totalCount={props.summary.total}
-              pageCount={Math.ceil(props.summary.total / props.pageSize)}
+              totalCount={props.totalCount}
+              pageCount={Math.ceil(props.totalCount / props.pageSize)}
               onPageIndexChange={props.onPageIndexChange}
               onPageSizeChange={props.onPageSizeChange}
             />
@@ -663,9 +689,18 @@ export function CPAAccountsPanel() {
     'official_login',
     activePoolType === 'official_login'
   )
-  const importedSelection = useCPAAccountSelection('cpa_import')
-  const temporarySelection = useCPAAccountSelection('temporary')
-  const officialSelection = useCPAAccountSelection('official_login')
+  const importedSelection = useCPAAccountSelection(
+    'cpa_import',
+    importedPool.accountFilter
+  )
+  const temporarySelection = useCPAAccountSelection(
+    'temporary',
+    temporaryPool.accountFilter
+  )
+  const officialSelection = useCPAAccountSelection(
+    'official_login',
+    officialPool.accountFilter
+  )
   const [batchPoolType, setBatchPoolType] = useState<CPAAccountPoolType | null>(
     null
   )
@@ -838,6 +873,7 @@ export function CPAAccountsPanel() {
           workingName={workingName}
           isLoading={activePool.query.isLoading}
           isFetching={activePool.query.isFetching}
+          totalCount={activePool.query.data?.data?.total ?? 0}
           summary={activePool.query.data?.data?.summary ?? emptySummary}
           pageIndex={activePool.pageIndex}
           pageSize={activePool.pageSize}
@@ -853,7 +889,10 @@ export function CPAAccountsPanel() {
           }}
           onSortByChange={activePool.setSortBy}
           onSortOrderChange={activePool.setSortOrder}
-          onAccountFilterChange={activePool.setAccountFilter}
+          onAccountFilterChange={(filter) => {
+            activePool.setAccountFilter(filter)
+            activeSelection.clearSelection()
+          }}
           onToggleSelection={activeSelection.toggleSelection}
           onTogglePageSelection={activeSelection.togglePageSelection}
           onSelectAll={() => selectAllAccounts(activeSelection)}

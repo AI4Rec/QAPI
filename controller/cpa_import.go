@@ -254,6 +254,11 @@ func GetCPAAccounts(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "排序方向无效"})
 		return
 	}
+	accountFilter, ok := normalizeAccountPoolFilter(c.Query("account_filter"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "账号筛选条件无效"})
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	snapshot, err := buildCPAAccountPoolSnapshot(files, poolTypeFilter)
 	if err != nil {
@@ -262,18 +267,23 @@ func GetCPAAccounts(c *gin.Context) {
 	}
 	sortCPAAccountCandidates(snapshot.candidates, sortBy, sortOrder)
 
+	usageByKey := map[string]any{}
+	if accountPoolFilterNeedsUsage(accountFilter) {
+		usageByKey = loadCPAAccountUsages(c.Request.Context(), managementKey, snapshot.candidates, usageByKey)
+	}
+	candidates := filterCPAAccountCandidates(snapshot.candidates, usageByKey, accountFilter)
 	start := pageInfo.GetStartIdx()
-	if start > len(snapshot.candidates) {
-		start = len(snapshot.candidates)
+	if start > len(candidates) {
+		start = len(candidates)
 	}
 	end := pageInfo.GetEndIdx()
-	if end > len(snapshot.candidates) {
-		end = len(snapshot.candidates)
+	if end > len(candidates) {
+		end = len(candidates)
 	}
-	pageCandidates := snapshot.candidates[start:end]
+	pageCandidates := candidates[start:end]
+	usageByKey = loadCPAAccountUsages(c.Request.Context(), managementKey, pageCandidates, usageByKey)
 	outputByAssetKey := readCPAAccountOutputs()
 	accounts := make([]map[string]any, 0, len(pageCandidates))
-	usageCandidates := map[string]map[string]string{}
 	for _, candidate := range pageCandidates {
 		file := candidate.file
 		accountID := candidate.metadata.AccountID
@@ -306,35 +316,7 @@ func GetCPAAccounts(c *gin.Context) {
 			account["cost_note"] = storedAsset.CostNote
 		}
 		accounts = append(accounts, account)
-		if accountID != "" && usageCandidates[candidate.uniqueKey] == nil {
-			usageCandidates[candidate.uniqueKey] = map[string]string{
-				"auth_index": stringValue(file["auth_index"]),
-				"account_id": accountID,
-			}
-		}
 	}
-
-	usageByKey := map[string]any{}
-	var usageMu sync.Mutex
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 6)
-	for uniqueKey, candidate := range usageCandidates {
-		wg.Add(1)
-		go func(key string, item map[string]string) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-			usage, usageErr := fetchCPAAccountUsage(c.Request.Context(), managementKey, item["auth_index"], item["account_id"])
-			usageMu.Lock()
-			defer usageMu.Unlock()
-			if usageErr != nil {
-				usageByKey[key] = map[string]any{"error": usageErr.Error()}
-				return
-			}
-			usageByKey[key] = usage
-		}(uniqueKey, candidate)
-	}
-	wg.Wait()
 
 	for _, account := range accounts {
 		uniqueKey := stringValue(account["unique_key"])
@@ -356,8 +338,8 @@ func GetCPAAccounts(c *gin.Context) {
 		"message": "",
 		"data": gin.H{
 			"accounts": accounts,
-			"page":     pageInfo.Page, "page_size": pageInfo.PageSize, "total": len(snapshot.candidates),
-			"sort_by": sortBy, "sort_order": sortOrder,
+			"page":     pageInfo.Page, "page_size": pageInfo.PageSize, "total": len(candidates),
+			"sort_by": sortBy, "sort_order": sortOrder, "account_filter": accountFilter,
 			"summary": gin.H{
 				"total":      len(snapshot.candidates),
 				"unique":     len(snapshot.uniqueCounts),
@@ -515,6 +497,11 @@ func GetCPAAccountSelection(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "账号池类型无效"})
 		return
 	}
+	accountFilter, ok := normalizeAccountPoolFilter(c.Query("account_filter"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "账号筛选条件无效"})
+		return
+	}
 	managementKey, err := readCPAManagementKey()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "CPA 管理密钥不可用"})
@@ -531,14 +518,113 @@ func GetCPAAccountSelection(c *gin.Context) {
 		return
 	}
 	sortCPAAccountCandidates(snapshot.candidates, "name", "asc")
-	names := make([]string, 0, len(snapshot.candidates))
-	for _, candidate := range snapshot.candidates {
+	usageByKey := map[string]any{}
+	if accountPoolFilterNeedsUsage(accountFilter) {
+		usageByKey = loadCPAAccountUsages(c.Request.Context(), managementKey, snapshot.candidates, usageByKey)
+	}
+	candidates := filterCPAAccountCandidates(snapshot.candidates, usageByKey, accountFilter)
+	names := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
 		names = append(names, stringValue(candidate.file["name"]))
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    gin.H{"names": names, "total": len(names)},
 	})
+}
+
+func filterCPAAccountCandidates(candidates []cpaAccountCandidate, usageByKey map[string]any, filter string) []cpaAccountCandidate {
+	if filter == accountPoolFilterAll {
+		return candidates
+	}
+	filtered := make([]cpaAccountCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		usage, _ := usageByKey[candidate.uniqueKey].(map[string]any)
+		if cpaAccountCandidateMatchesPoolFilter(candidate, usage, filter) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
+}
+
+func cpaAccountCandidateMatchesPoolFilter(candidate cpaAccountCandidate, usage map[string]any, filter string) bool {
+	switch filter {
+	case accountPoolFilterInsufficientQuota:
+		return accountPoolUsageLimitReached(usage) ||
+			accountPoolTextIncludesAnyMarker(
+				[]string{
+					stringValue(candidate.file["status_message"]),
+					stringValue(usage["error"]),
+				},
+				accountPoolInsufficientQuotaMarkers,
+			)
+	case accountPoolFilterForbidden:
+		return accountPoolTextIncludesAnyMarker(
+			[]string{
+				stringValue(candidate.file["status"]),
+				stringValue(candidate.file["status_message"]),
+				stringValue(usage["error"]),
+			},
+			accountPoolForbiddenMarkers,
+		)
+	case accountPoolFilterPaused:
+		return candidate.disabled ||
+			accountPoolTextIncludesAnyMarker(
+				[]string{
+					stringValue(candidate.file["status"]),
+					stringValue(candidate.file["status_message"]),
+				},
+				accountPoolPausedMarkers,
+			)
+	default:
+		return true
+	}
+}
+
+func loadCPAAccountUsages(ctx context.Context, managementKey string, candidates []cpaAccountCandidate, usageByKey map[string]any) map[string]any {
+	if usageByKey == nil {
+		usageByKey = map[string]any{}
+	}
+	usageCandidates := map[string]map[string]string{}
+	for _, candidate := range candidates {
+		if _, exists := usageByKey[candidate.uniqueKey]; exists {
+			continue
+		}
+		accountID := candidate.metadata.AccountID
+		authIndex := stringValue(candidate.file["auth_index"])
+		if accountID == "" || authIndex == "" {
+			continue
+		}
+		usageCandidates[candidate.uniqueKey] = map[string]string{
+			"auth_index": authIndex,
+			"account_id": accountID,
+		}
+	}
+	if len(usageCandidates) == 0 {
+		return usageByKey
+	}
+
+	var usageMu sync.Mutex
+	var waitGroup sync.WaitGroup
+	semaphore := make(chan struct{}, 6)
+	for uniqueKey, candidate := range usageCandidates {
+		waitGroup.Add(1)
+		go func(key string, item map[string]string) {
+			defer waitGroup.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			usage, usageErr := fetchCPAAccountUsage(ctx, managementKey, item["auth_index"], item["account_id"])
+			usageMu.Lock()
+			defer usageMu.Unlock()
+			if usageErr != nil {
+				usageByKey[key] = map[string]any{"error": usageErr.Error()}
+				return
+			}
+			usageByKey[key] = usage
+		}(uniqueKey, candidate)
+	}
+	waitGroup.Wait()
+	return usageByKey
 }
 
 func cpaAccountPoolType(name string) string {
@@ -1210,6 +1296,9 @@ func fetchCPAAccountUsage(ctx context.Context, managementKey, authIndex, account
 	})
 	body, status, err := doCPARequest(ctx, managementKey, http.MethodPost, "/v0/management/api-call", payload)
 	if err != nil || status < 200 || status >= 300 {
+		if status > 0 {
+			return nil, fmt.Errorf("额度查询失败: HTTP %d", status)
+		}
 		return nil, fmt.Errorf("额度查询失败")
 	}
 	var outer struct {
@@ -1217,6 +1306,9 @@ func fetchCPAAccountUsage(ctx context.Context, managementKey, authIndex, account
 		Body       string `json:"body"`
 	}
 	if common.Unmarshal(body, &outer) != nil || outer.StatusCode < 200 || outer.StatusCode >= 300 {
+		if outer.StatusCode > 0 {
+			return nil, fmt.Errorf("额度查询返回 HTTP %d", outer.StatusCode)
+		}
 		return nil, fmt.Errorf("额度查询返回异常")
 	}
 	usage := map[string]any{}

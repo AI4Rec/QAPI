@@ -175,43 +175,154 @@ func ImportSub2APIAccounts(c *gin.Context) {
 }
 
 func GetSub2APIAccounts(c *gin.Context) {
+	accountFilter, ok := normalizeAccountPoolFilter(c.Query("account_filter"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "账号筛选条件无效"})
+		return
+	}
+	page, pageSize := sub2APIAccountPageQuery(c)
 	query := url.Values{}
-	for _, key := range []string{"page", "page_size", "platform", "type", "status", "search", "sort_by", "sort_order"} {
+	for _, key := range []string{"platform", "type", "status", "search", "sort_by", "sort_order"} {
 		if value := strings.TrimSpace(c.Query(key)); value != "" {
 			query.Set(key, value)
 		}
 	}
-	if query.Get("page") == "" {
-		query.Set("page", "1")
+	if query.Get("sort_by") == "" {
+		query.Set("sort_by", "created_at")
 	}
-	if query.Get("page_size") == "" {
-		query.Set("page_size", "20")
+	if query.Get("sort_order") == "" {
+		query.Set("sort_order", "desc")
 	}
 
+	accounts, err := listSub2APIAccountsForPanel(c.Request.Context(), query)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	accounts, err = prepareSub2APIAccountsForPanel(c, accounts)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "读取 Sub2API 成本失败"})
+		return
+	}
+
+	if accountPoolFilterNeedsUsage(accountFilter) {
+		loadSub2APIAccountUsageForAccounts(c.Request.Context(), accounts)
+	}
+	accounts = filterSub2APIAccounts(accounts, accountFilter)
+
+	total := len(accounts)
+	pages := sub2APIAccountPageCount(total, pageSize)
+	if pages > 0 && page > pages {
+		page = pages
+	}
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	pageItems := accounts[start:end]
+	loadSub2APIAccountDetailsForPage(c.Request.Context(), pageItems, !accountPoolFilterNeedsUsage(accountFilter))
+
+	accountIDs := make([]int64, 0, len(pageItems))
+	for _, account := range pageItems {
+		accountIDs = append(accountIDs, account.ID)
+	}
+	stats := getSub2APITodayStats(c.Request.Context(), accountIDs)
+	for index := range pageItems {
+		account := &pageItems[index]
+		if today, ok := stats[strconv.FormatInt(account.ID, 10)]; ok {
+			account.TodayStats = &today
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "success",
+		"data": gin.H{
+			"items": pageItems, "total": total, "page": page,
+			"page_size": pageSize, "pages": pages, "account_filter": accountFilter,
+		},
+	})
+}
+
+func sub2APIAccountPageQuery(c *gin.Context) (int, int) {
+	page, _ := strconv.Atoi(c.Query("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	return page, pageSize
+}
+
+func sub2APIAccountPageCount(total int, pageSize int) int {
+	if total <= 0 {
+		return 0
+	}
+	return (total + pageSize - 1) / pageSize
+}
+
+func listSub2APIAccountsForPanel(ctx context.Context, baseQuery url.Values) ([]sub2APIAccount, error) {
+	query := url.Values{}
+	for key, values := range baseQuery {
+		for _, value := range values {
+			query.Add(key, value)
+		}
+	}
+	query.Set("page_size", "1000")
+	query.Set("page", "1")
+
+	firstPage, err := fetchSub2APIAccountPage(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	accounts := append([]sub2APIAccount{}, firstPage.Items...)
+	for page := 2; page <= firstPage.Pages; page++ {
+		query.Set("page", strconv.Itoa(page))
+		nextPage, pageErr := fetchSub2APIAccountPage(ctx, query)
+		if pageErr != nil {
+			return nil, pageErr
+		}
+		accounts = append(accounts, nextPage.Items...)
+	}
+	return accounts, nil
+}
+
+func fetchSub2APIAccountPage(ctx context.Context, query url.Values) (sub2APIAccountListData, error) {
 	responseBody, status, err := doSub2APIRequest(
-		c.Request.Context(),
+		ctx,
 		http.MethodGet,
 		"/api/v1/admin/accounts?"+query.Encode(),
 		nil,
 	)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": err.Error()})
-		return
+		return sub2APIAccountListData{}, err
 	}
 	var upstream sub2APIAccountListResponse
 	if err := common.Unmarshal(responseBody, &upstream); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "Sub2API 响应格式错误"})
-		return
+		return sub2APIAccountListData{}, fmt.Errorf("Sub2API 响应格式错误")
 	}
 	if status < http.StatusOK || status >= http.StatusMultipleChoices || upstream.Code != 0 {
-		writeSub2APIResponse(c, status, responseBody, "success")
-		return
+		message := strings.TrimSpace(upstream.Message)
+		if message == "" {
+			message = fmt.Sprintf("Sub2API 返回 HTTP %d", status)
+		}
+		return sub2APIAccountListData{}, fmt.Errorf("%s", message)
 	}
+	return upstream.Data, nil
+}
 
-	accountIDs := make([]int64, 0, len(upstream.Data.Items))
-	assetKeys := make([]string, 0, len(upstream.Data.Items))
-	for index := range upstream.Data.Items {
-		account := &upstream.Data.Items[index]
+func prepareSub2APIAccountsForPanel(c *gin.Context, accounts []sub2APIAccount) ([]sub2APIAccount, error) {
+	assetKeys := make([]string, 0, len(accounts))
+	for index := range accounts {
+		account := &accounts[index]
 		account.Email = strings.TrimSpace(account.Credentials.Email)
 		account.PlanType = strings.TrimSpace(account.Credentials.PlanType)
 		account.AssetKey = model.OperationalSub2APIAssetKey(account.ID)
@@ -224,62 +335,102 @@ func GetSub2APIAccounts(c *gin.Context) {
 			SourceID: account.ID, SourceRef: strconv.FormatInt(account.ID, 10), DisplayName: displayName,
 			CreatedBy: c.GetInt("id"), UpdatedBy: c.GetInt("id"),
 		}); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "读取 Sub2API 成本失败"})
-			return
+			return nil, err
 		}
-		accountIDs = append(accountIDs, account.ID)
 		assetKeys = append(assetKeys, account.AssetKey)
 	}
 	assets, err := model.GetOperationalAssetsByKeys(model.OperationalAssetTypeSub2APIAccount, assetKeys)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "读取 Sub2API 成本失败"})
-		return
+		return nil, err
 	}
-	visibleItems := upstream.Data.Items[:0]
-	for _, account := range upstream.Data.Items {
+	visibleAccounts := make([]sub2APIAccount, 0, len(accounts))
+	for _, account := range accounts {
 		asset, ok := assets[account.AssetKey]
 		if ok && asset.State == model.OperationalAssetStateArchived {
-			upstream.Data.Total--
 			continue
 		}
-		visibleItems = append(visibleItems, account)
+		if ok {
+			account.CostMinor = asset.CostMinor
+			account.CostDate = asset.CostDate
+			account.CostNote = asset.CostNote
+		}
+		visibleAccounts = append(visibleAccounts, account)
 	}
-	upstream.Data.Items = visibleItems
-	accountIDs = accountIDs[:0]
-	for _, account := range upstream.Data.Items {
-		accountIDs = append(accountIDs, account.ID)
-	}
+	return visibleAccounts, nil
+}
 
-	statsChannel := make(chan map[string]sub2APIAccountWindowStats, 1)
-	go func() {
-		statsChannel <- getSub2APITodayStats(c.Request.Context(), accountIDs)
-	}()
+func loadSub2APIAccountUsageForAccounts(ctx context.Context, accounts []sub2APIAccount) {
 	var waitGroup sync.WaitGroup
 	semaphore := make(chan struct{}, 6)
-	for index := range upstream.Data.Items {
+	for index := range accounts {
 		waitGroup.Add(1)
 		go func(account *sub2APIAccount) {
 			defer waitGroup.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			loadSub2APIAccountUsage(c.Request.Context(), account)
-			loadSub2APIAccountCumulativeOutput(c.Request.Context(), account)
-		}(&upstream.Data.Items[index])
+			loadSub2APIAccountUsage(ctx, account)
+		}(&accounts[index])
 	}
 	waitGroup.Wait()
-	stats := <-statsChannel
-	for index := range upstream.Data.Items {
-		account := &upstream.Data.Items[index]
-		if asset, ok := assets[account.AssetKey]; ok {
-			account.CostMinor = asset.CostMinor
-			account.CostDate = asset.CostDate
-			account.CostNote = asset.CostNote
-		}
-		if today, ok := stats[strconv.FormatInt(account.ID, 10)]; ok {
-			account.TodayStats = &today
+}
+
+func loadSub2APIAccountDetailsForPage(ctx context.Context, accounts []sub2APIAccount, includeUsage bool) {
+	var waitGroup sync.WaitGroup
+	semaphore := make(chan struct{}, 6)
+	for index := range accounts {
+		waitGroup.Add(1)
+		go func(account *sub2APIAccount) {
+			defer waitGroup.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			if includeUsage {
+				loadSub2APIAccountUsage(ctx, account)
+			}
+			loadSub2APIAccountCumulativeOutput(ctx, account)
+		}(&accounts[index])
+	}
+	waitGroup.Wait()
+}
+
+func filterSub2APIAccounts(accounts []sub2APIAccount, filter string) []sub2APIAccount {
+	if filter == accountPoolFilterAll {
+		return accounts
+	}
+	filtered := make([]sub2APIAccount, 0, len(accounts))
+	for _, account := range accounts {
+		if sub2APIAccountMatchesPoolFilter(account, filter) {
+			filtered = append(filtered, account)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "success", "data": upstream.Data})
+	return filtered
+}
+
+func sub2APIAccountMatchesPoolFilter(account sub2APIAccount, filter string) bool {
+	usageError := ""
+	if account.Usage != nil {
+		usageError = account.Usage.Error
+	}
+	switch filter {
+	case accountPoolFilterInsufficientQuota:
+		return account.Usage != nil && account.Usage.RateLimit.LimitReached ||
+			accountPoolTextIncludesAnyMarker(
+				[]string{account.ErrorMessage, usageError},
+				accountPoolInsufficientQuotaMarkers,
+			)
+	case accountPoolFilterForbidden:
+		return accountPoolTextIncludesAnyMarker(
+			[]string{account.Status, account.ErrorMessage, usageError},
+			accountPoolForbiddenMarkers,
+		)
+	case accountPoolFilterPaused:
+		return !account.Schedulable ||
+			accountPoolTextIncludesAnyMarker(
+				[]string{account.Status, account.ErrorMessage},
+				accountPoolPausedMarkers,
+			)
+	default:
+		return true
+	}
 }
 
 func loadSub2APIAccountCumulativeOutput(ctx context.Context, account *sub2APIAccount) {
@@ -380,35 +531,30 @@ func ArchiveSub2APIAccount(c *gin.Context) {
 }
 
 func GetSub2APIAccountSelection(c *gin.Context) {
-	responseBody, status, err := doSub2APIRequest(
-		c.Request.Context(),
-		http.MethodGet,
-		"/api/v1/admin/accounts?page=1&page_size=1000&sort_by=name&sort_order=asc",
-		nil,
-	)
+	accountFilter, ok := normalizeAccountPoolFilter(c.Query("account_filter"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "账号筛选条件无效"})
+		return
+	}
+	query := url.Values{}
+	query.Set("sort_by", "name")
+	query.Set("sort_order", "asc")
+	accounts, err := listSub2APIAccountsForPanel(c.Request.Context(), query)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	var upstream sub2APIAccountListResponse
-	if err := common.Unmarshal(responseBody, &upstream); err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices || upstream.Code != 0 {
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "读取 Sub2API 账号失败"})
-		return
-	}
-	assetKeys := make([]string, 0, len(upstream.Data.Items))
-	for _, account := range upstream.Data.Items {
-		assetKeys = append(assetKeys, model.OperationalSub2APIAssetKey(account.ID))
-	}
-	assets, err := model.GetOperationalAssetsByKeys(model.OperationalAssetTypeSub2APIAccount, assetKeys)
+	accounts, err = prepareSub2APIAccountsForPanel(c, accounts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "读取 Sub2API 账号失败"})
 		return
 	}
-	ids := make([]int64, 0, len(upstream.Data.Items))
-	for _, account := range upstream.Data.Items {
-		if asset, ok := assets[model.OperationalSub2APIAssetKey(account.ID)]; ok && asset.State == model.OperationalAssetStateArchived {
-			continue
-		}
+	if accountPoolFilterNeedsUsage(accountFilter) {
+		loadSub2APIAccountUsageForAccounts(c.Request.Context(), accounts)
+	}
+	accounts = filterSub2APIAccounts(accounts, accountFilter)
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
 		ids = append(ids, account.ID)
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"ids": ids, "total": len(ids)}})
@@ -623,12 +769,20 @@ func loadSub2APIAccountUsage(ctx context.Context, account *sub2APIAccount) {
 			nil,
 		)
 		if err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices {
-			account.Usage.Error = "额度查询失败"
+			if status > 0 {
+				account.Usage.Error = fmt.Sprintf("额度查询失败: HTTP %d", status)
+			} else {
+				account.Usage.Error = "额度查询失败"
+			}
 			return
 		}
 		var upstream sub2APIOpenAIQuotaResponse
 		if common.Unmarshal(responseBody, &upstream) != nil || upstream.Code != 0 {
-			account.Usage.Error = "额度查询失败"
+			if upstream.Message != "" {
+				account.Usage.Error = upstream.Message
+			} else {
+				account.Usage.Error = "额度查询失败"
+			}
 			return
 		}
 		if upstream.Data.PlanType != "" {
@@ -650,12 +804,20 @@ func loadSub2APIAccountUsage(ctx context.Context, account *sub2APIAccount) {
 		nil,
 	)
 	if err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices {
-		account.Usage.Error = "额度查询失败"
+		if status > 0 {
+			account.Usage.Error = fmt.Sprintf("额度查询失败: HTTP %d", status)
+		} else {
+			account.Usage.Error = "额度查询失败"
+		}
 		return
 	}
 	var upstream sub2APIUpstreamUsageResponse
 	if common.Unmarshal(responseBody, &upstream) != nil || upstream.Code != 0 {
-		account.Usage.Error = "额度查询失败"
+		if upstream.Message != "" {
+			account.Usage.Error = upstream.Message
+		} else {
+			account.Usage.Error = "额度查询失败"
+		}
 		return
 	}
 	if upstream.Data.SubscriptionTier != "" {

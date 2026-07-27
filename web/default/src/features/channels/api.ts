@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { getGroups as getUserGroups } from '@/features/users/api'
 import { api, type ApiRequestConfig } from '@/lib/api'
 
+import type { AccountPoolFilter } from './lib/account-pool-filters'
 import type {
   AddChannelRequest,
   BatchDeleteParams,
@@ -269,6 +270,7 @@ export type Sub2APIAccountsResponse = {
     page: number
     page_size: number
     pages: number
+    account_filter?: AccountPoolFilter
   }
 }
 
@@ -352,6 +354,7 @@ export type CPAAccountsResponse = {
     total: number
     sort_by: CPAAccountSortBy
     sort_order: CPAAccountSortOrder
+    account_filter?: AccountPoolFilter
     summary: {
       total: number
       unique: number
@@ -469,6 +472,7 @@ export async function inspectAccount(request: {
 export async function getSub2APIAccounts(params?: {
   page?: number
   pageSize?: number
+  accountFilter?: AccountPoolFilter
 }): Promise<Sub2APIAccountsResponse> {
   const res = await api.get('/api/sub2api/accounts', {
     ...channelActionConfig(),
@@ -477,6 +481,7 @@ export async function getSub2APIAccounts(params?: {
       page_size: params?.pageSize ?? 20,
       sort_by: 'created_at',
       sort_order: 'desc',
+      account_filter: params?.accountFilter,
     },
   })
   return res.data
@@ -515,11 +520,13 @@ export async function archiveSub2APIAccount(
   return res.data
 }
 
-export async function getSub2APIAccountSelection(): Promise<Sub2APIAccountSelectionResponse> {
-  const res = await api.get(
-    '/api/sub2api/accounts/selection',
-    channelActionConfig()
-  )
+export async function getSub2APIAccountSelection(
+  accountFilter?: AccountPoolFilter
+): Promise<Sub2APIAccountSelectionResponse> {
+  const res = await api.get('/api/sub2api/accounts/selection', {
+    ...channelActionConfig(),
+    params: { account_filter: accountFilter },
+  })
   return res.data
 }
 
@@ -545,6 +552,7 @@ export async function getCPAAccounts(params?: {
   pageSize?: number
   sortBy?: CPAAccountSortBy
   sortOrder?: CPAAccountSortOrder
+  accountFilter?: AccountPoolFilter
 }): Promise<CPAAccountsResponse> {
   const res = await api.get('/api/cpa/accounts', {
     ...channelActionConfig(),
@@ -554,17 +562,19 @@ export async function getCPAAccounts(params?: {
       page_size: params?.pageSize ?? 20,
       sort_by: params?.sortBy,
       sort_order: params?.sortOrder,
+      account_filter: params?.accountFilter,
     },
   })
   return res.data
 }
 
 export async function getCPAAccountSelection(
-  poolType: CPAAccountPoolType
+  poolType: CPAAccountPoolType,
+  accountFilter?: AccountPoolFilter
 ): Promise<CPAAccountSelectionResponse> {
   const res = await api.get('/api/cpa/accounts/selection', {
     ...channelActionConfig(),
-    params: { pool_type: poolType },
+    params: { pool_type: poolType, account_filter: accountFilter },
   })
   return res.data
 }

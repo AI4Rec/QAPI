@@ -9,6 +9,7 @@ type AccountSelectionToolbarProps = {
   selectedCount: number
   totalCount: number
   selectingAll: boolean
+  selectAllLabel?: string
   onSelectAll: () => void
   onClear: () => void
   onManage: () => void
@@ -35,9 +36,10 @@ export function AccountSelectionToolbar(props: AccountSelectionToolbarProps) {
           ) : (
             <CheckCheck data-icon='inline-start' />
           )}
-          {t('Select all {{count}} accounts in this pool', {
-            count: props.totalCount,
-          })}
+          {props.selectAllLabel ??
+            t('Select all {{count}} accounts in this pool', {
+              count: props.totalCount,
+            })}
         </Button>
       )}
       <Separator orientation='vertical' className='mx-1 hidden h-5 sm:block' />
